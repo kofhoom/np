@@ -394,6 +394,7 @@ let lastAcousticUpdate = 0;
 let autoRoomMode = true;
 let lastAutoDuration = 0;
 let roomSizeEl: HTMLElement | null = null;
+let spatialMode = true; // true=360 HRTF, false=원음(스테레오)
 
 // 음향 파라미터 초기값 (저장된 값 우선)
 const _savedAudio = saved.audioParams ?? {};
@@ -415,6 +416,8 @@ let audioParams = {
 // 추가 오디오 노드 refs
 let preDelayNode: DelayNode | null = null;
 let compressor: DynamicsCompressorNode | null = null;
+let spatialInputGain: GainNode | null = null; // gainNode → panner 사이 (공간음향 on/off)
+let bypassGain: GainNode | null = null;       // gainNode → compressor 직결 (원음 모드)
 
 // 확산 잔향 꼬리만 생성 (조기 반사음은 레이캐스터로 실시간 처리)
 function makeImpulseResponse(
@@ -494,20 +497,36 @@ function ensureAudioCtx(): AudioContext {
       reflGainNodes.push(g);
     }
 
+    // 360 on/off 스위칭용 게인
+    spatialInputGain = audioCtx.createGain();
+    spatialInputGain.gain.value = spatialMode ? 1 : 0;
+    bypassGain = audioCtx.createGain();
+    bypassGain.gain.value = spatialMode ? 0 : 1;
+
     // 그래프:
-    // source → gain → panner ──────────────────────→ dryGain ────→ compressor → dest
-    //                        → delay[0~5] → reflGain ────────────→ compressor
-    //                        → preDelay → convolver → wetGain ───→ compressor
-    gainNode.connect(panner);
+    // source → gainNode → spatialInputGain → panner → dryGain ────→ compressor → dest
+    //                                              → delay[0~5] → reflGain ──→ compressor
+    //                                              → preDelay → convolver → wetGain → compressor
+    //        → gainNode → bypassGain ──────────────────────────────────────→ compressor
+    gainNode.connect(spatialInputGain);
+    spatialInputGain.connect(panner);
     panner.connect(dryGain);
     panner.connect(preDelayNode);
     preDelayNode.connect(convolver);
     convolver.connect(wetGain);
     dryGain.connect(compressor);
     wetGain.connect(compressor);
+    gainNode.connect(bypassGain);
+    bypassGain.connect(compressor);
     compressor.connect(audioCtx.destination);
   }
   return audioCtx;
+}
+
+function setSpatialMode(on: boolean): void {
+  spatialMode = on;
+  if (spatialInputGain) spatialInputGain.gain.setTargetAtTime(on ? 1 : 0, audioCtx!.currentTime, 0.05);
+  if (bypassGain) bypassGain.gain.setTargetAtTime(on ? 0 : 1, audioCtx!.currentTime, 0.05);
 }
 
 function applyAudioParams(): void {
@@ -607,6 +626,20 @@ const nextBtn = document.createElement('span');
 nextBtn.textContent = 'next';
 nextBtn.style.cssText = 'cursor:pointer;opacity:0.7;';
 
+// 360 모드 토글 버튼
+const spatialBtn = document.createElement('span');
+spatialBtn.textContent = '360';
+spatialBtn.title = '360 공간음향 on/off';
+spatialBtn.style.cssText = 'cursor:pointer;font-size:11px;font-weight:bold;padding:2px 5px;border-radius:4px;background:rgba(80,180,255,0.35);color:#7df;';
+spatialBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const next = !spatialMode;
+  setSpatialMode(next);
+  spatialBtn.style.background = next ? 'rgba(80,180,255,0.35)' : 'rgba(80,80,80,0.4)';
+  spatialBtn.style.color = next ? '#7df' : '#888';
+  spatialBtn.title = next ? '360 공간음향 on/off (현재: ON)' : '360 공간음향 on/off (현재: OFF)';
+});
+
 // 음원 위치 토글 버튼
 const srcToggleBtn = document.createElement('span');
 srcToggleBtn.textContent = '🔊';
@@ -616,6 +649,7 @@ srcToggleBtn.style.cssText = 'cursor:pointer;opacity:0.7;font-size:13px;';
 playerEl.appendChild(prevBtn);
 playerEl.appendChild(trackNameEl);
 playerEl.appendChild(nextBtn);
+playerEl.appendChild(spatialBtn);
 playerEl.appendChild(srcToggleBtn);
 
 // 음원 위치 조정 패널
