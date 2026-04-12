@@ -116,6 +116,7 @@ export class Viewer {
     this.cameraControls.target.set(9, 3, -6.5);
     this.cameraControls.minDistance = 0.1;
     this.cameraControls.zoomSpeed = 2.0;
+    this.cameraControls.enableZoom = false;
 
     this.resize();
     window.addEventListener('resize', this.resize);

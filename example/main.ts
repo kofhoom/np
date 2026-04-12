@@ -60,13 +60,13 @@ const viewer = new Viewer();
 let sky: Sky;
 
 // 태양 연동 DirectionalLight
-const sunLight = new DirectionalLight(0xfff5e0, saved.sunLightIntensity ?? 3.0);
+const sunLight = new DirectionalLight(0xfff5e0, saved.sunLightIntensity ?? 3.15);
 sunLight.target.position.set(0, 0, 0);
 viewer.scene.add(sunLight);
 viewer.scene.add(sunLight.target);
 
-const sunAzimuth = saved.sunAzimuth ?? 170;
-const sunElevation = saved.sunElevation ?? 2;
+const sunAzimuth = saved.sunAzimuth ?? 315;
+const sunElevation = saved.sunElevation ?? 19.675;
 
 function updateSun(azDeg: number, elDeg: number): void {
   if (!sky) return;
@@ -82,7 +82,7 @@ function updateSun(azDeg: number, elDeg: number): void {
 
 viewer.initialize(targetEl).then(() => {
   viewer.renderer.toneMapping = ACESFilmicToneMapping;
-  viewer.renderer.toneMappingExposure = saved.exposure ?? 0.87;
+  viewer.renderer.toneMappingExposure = saved.exposure ?? 0.284;
   viewer.renderer.outputColorSpace = SRGBColorSpace;
   sky = new Sky();
   sky.scale.setScalar(450000);
@@ -95,7 +95,7 @@ viewer.initialize(targetEl).then(() => {
   updateSun(sunAzimuth, sunElevation);
 });
 
-const ambient = new AmbientLight(0xffffff, saved.ambientIntensity ?? 2.0);
+const ambient = new AmbientLight(0xffffff, saved.ambientIntensity ?? 1.66);
 viewer.scene.add(ambient);
 
 // ── 패널 ─────────────────────────────────────────────────────
@@ -207,6 +207,9 @@ loader.load(
       model.position.set(saved.model.px, saved.model.py, saved.model.pz);
       model.rotation.set(saved.model.rx, saved.model.ry, saved.model.rz);
       model.scale.set(saved.model.sx, saved.model.sy, saved.model.sz);
+    } else {
+      model.position.set(0, -11.4688, 0);
+      model.rotation.set(-Math.PI, 0.7596, -Math.PI);
     }
     viewer.scene.add(model);
     model.updateMatrixWorld(true);
@@ -249,10 +252,10 @@ loader.load(
     panel.appendChild(modelBtnRow);
 
     sep('전역 설정');
-    makeSlider('환경광', 0, 2, saved.ambientIntensity ?? 2.0, (v) => {
+    makeSlider('환경광', 0, 2, saved.ambientIntensity ?? 1.66, (v) => {
       ambient.intensity = v;
     });
-    makeSlider('노출', 0.2, 3, saved.exposure ?? 0.87, (v) => {
+    makeSlider('노출', 0.2, 3, saved.exposure ?? 0.284, (v) => {
       viewer.renderer.toneMappingExposure = v;
     });
 
@@ -267,7 +270,7 @@ loader.load(
       curEl = v;
       updateSun(curAz, curEl);
     });
-    makeSlider('태양 빛 강도', 0, 10, saved.sunLightIntensity ?? 3.0, (v) => {
+    makeSlider('태양 빛 강도', 0, 10, saved.sunLightIntensity ?? 3.15, (v) => {
       sunLight.intensity = v;
     });
 
@@ -339,8 +342,8 @@ loader.load(
       viewer.camera.position.set(saved.camera.px, saved.camera.py, saved.camera.pz);
       viewer.cameraControls.target.set(saved.camera.tx, saved.camera.ty, saved.camera.tz);
     } else {
-      viewer.camera.position.set(-0.845, -9.833, 0.784);
-      viewer.cameraControls.target.set(-1.454, -9.756, 1.389);
+      viewer.camera.position.set(-2.0876, -9.8333, 1.9685);
+      viewer.cameraControls.target.set(-1.4539, -9.7561, 1.3890);
     }
     viewer.camera.updateProjectionMatrix();
 
@@ -395,14 +398,14 @@ let roomSizeEl: HTMLElement | null = null;
 // 음향 파라미터 초기값 (저장된 값 우선)
 const _savedAudio = saved.audioParams ?? {};
 let audioParams = {
-  volume:           _savedAudio.volume           ?? 1.0,
-  refDistance:      _savedAudio.refDistance      ?? 3,
-  rolloffFactor:    _savedAudio.rolloffFactor    ?? 0.5,
-  maxDistance:      _savedAudio.maxDistance      ?? 100,
+  volume:           _savedAudio.volume           ?? 1.03,
+  refDistance:      _savedAudio.refDistance      ?? 0.1,
+  rolloffFactor:    _savedAudio.rolloffFactor    ?? 0.025,
+  maxDistance:      _savedAudio.maxDistance      ?? 10,
   distanceModel:    (_savedAudio.distanceModel   ?? 'inverse') as DistanceModelType,
-  reverbWet:        _savedAudio.reverbWet        ?? 0.65,
-  reverbDuration:   _savedAudio.reverbDuration   ?? 4.5,
-  reverbDecay:      _savedAudio.reverbDecay      ?? 1.2,
+  reverbWet:        _savedAudio.reverbWet        ?? 0.7625,
+  reverbDuration:   _savedAudio.reverbDuration   ?? 1.56025,
+  reverbDecay:      _savedAudio.reverbDecay      ?? 8,
   earlyReflections: _savedAudio.earlyReflections ?? 0.7,  // 조기 반사음 강도
   preDelay:         _savedAudio.preDelay         ?? 0.04, // 프리딜레이 (초)
   airAbsorption:    _savedAudio.airAbsorption    ?? 0.6,  // 거리 기반 고음 흡수량
@@ -523,9 +526,9 @@ function applyAudioParams(): void {
 }
 
 // 음원 초기 위치 (저장된 값 우선)
-let srcX: number = saved.audioSrc?.x ?? -1.45;
-let srcY: number = saved.audioSrc?.y ?? -9.76;
-let srcZ: number = saved.audioSrc?.z ?? 1.39;
+let srcX: number = saved.audioSrc?.x ?? 7.1655;
+let srcY: number = saved.audioSrc?.y ?? 25.24;
+let srcZ: number = saved.audioSrc?.z ?? -4.4519;
 
 // ── 음원 위치 마커 (씬에 표시) ──────────────────────────────
 function makeAudioMarker(): Sprite {
@@ -941,9 +944,9 @@ setInterval(() => {
         const roomFactor = Math.min(1.0, avgDist / 30);
         const autoWet = Math.min(0.88, Math.max(0.1, 0.15 + distFactor * 0.45 + roomFactor * 0.3));
 
-        // 볼륨: panner가 거리 감쇠 처리하지만, 방 크기에 따라 전체 레벨 보정
-        // 큰 공간일수록 소리가 퍼져서 작아지는 것을 반영
-        const autoVol = Math.min(1.8, Math.max(0.3, audioParams.volume * (1.0 / (roomFactor * 0.5 + 1) + 0.5)));
+        // 볼륨: 음원까지의 직선 거리 기반으로 계산 (가까울수록 크게, 멀수록 작게)
+        // panner의 거리 감쇠와 별개로 gainNode 레벨 보정
+        const autoVol = Math.min(1.8, Math.max(0.4, audioParams.volume / (srcDist * 0.08 + 1)));
 
         // 모든 전환에 긴 time constant → 부드럽고 자연스러운 변화
         wetGain.gain.setTargetAtTime(autoWet, audioCtx.currentTime, 1.2);
