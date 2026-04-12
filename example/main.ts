@@ -643,7 +643,7 @@ spatialBtn.addEventListener('click', (e) => {
 // 음원 위치 토글 버튼
 const srcToggleBtn = document.createElement('span');
 srcToggleBtn.textContent = '🔊';
-srcToggleBtn.title = '음원 위치 조정';
+srcToggleBtn.title = DEV_MODE ? '음원 위치 조정' : '볼륨';
 srcToggleBtn.style.cssText = 'cursor:pointer;opacity:0.7;font-size:13px;';
 
 playerEl.appendChild(prevBtn);
@@ -652,7 +652,74 @@ playerEl.appendChild(nextBtn);
 playerEl.appendChild(spatialBtn);
 playerEl.appendChild(srcToggleBtn);
 
-// 음원 위치 조정 패널
+// ── 배포 모드: 볼륨 노브 패널 ────────────────────────────────
+const volPanel = document.createElement('div');
+volPanel.style.cssText = `
+  display:none;background:rgba(0,0,0,0.72);padding:14px 16px;
+  border-radius:12px;backdrop-filter:blur(6px);
+  display:none;flex-direction:column;align-items:center;gap:8px;min-width:90px;
+`;
+playerWrap.appendChild(volPanel);
+
+const volLabel = document.createElement('div');
+volLabel.textContent = '볼륨';
+volLabel.style.cssText = 'color:#aaa;font-size:10px;';
+volPanel.appendChild(volLabel);
+
+// 회전 다이얼처럼 보이는 range input
+const volKnobWrap = document.createElement('div');
+volKnobWrap.style.cssText = 'position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;';
+
+const volRing = document.createElement('div');
+volRing.style.cssText = 'position:absolute;inset:0;border-radius:50%;background:rgba(255,255,255,0.07);border:2px solid rgba(255,255,255,0.15);';
+volKnobWrap.appendChild(volRing);
+
+const volKnobInput = document.createElement('input');
+volKnobInput.type = 'range';
+volKnobInput.min = '0';
+volKnobInput.max = '2';
+volKnobInput.step = '0.01';
+volKnobInput.value = String(audioParams.volume);
+// 세로 방향 → 회전시켜 다이얼처럼 배치
+volKnobInput.style.cssText = `
+  writing-mode:vertical-lr;direction:rtl;
+  width:44px;height:44px;cursor:pointer;
+  -webkit-appearance:slider-vertical;appearance:slider-vertical;
+  opacity:0.01;position:absolute;inset:0;margin:auto;
+  z-index:2;
+`;
+volKnobWrap.appendChild(volKnobInput);
+
+// 다이얼 바늘 (회전으로 볼륨 표시)
+const volNeedle = document.createElement('div');
+volNeedle.style.cssText = `
+  position:absolute;bottom:50%;left:50%;width:2px;height:20px;
+  background:#7df;border-radius:2px;transform-origin:bottom center;
+  transform:translateX(-50%) rotate(0deg);pointer-events:none;z-index:1;
+`;
+volKnobWrap.appendChild(volNeedle);
+
+const volValueEl = document.createElement('div');
+volValueEl.style.cssText = 'color:#7df;font-size:11px;font-weight:bold;';
+volValueEl.textContent = Math.round(audioParams.volume * 100) + '%';
+
+function updateVolKnob(v: number): void {
+  // 0~2 범위를 -135°~+135° 범위로 매핑 (270° 총 회전)
+  const deg = (v / 2) * 270 - 135;
+  volNeedle.style.transform = `translateX(-50%) rotate(${deg}deg)`;
+  volValueEl.textContent = Math.round(v * 100) + '%';
+  audioParams.volume = v;
+  if (gainNode) gainNode.gain.setTargetAtTime(v, audioCtx!.currentTime, 0.05);
+}
+
+volKnobInput.addEventListener('input', () => updateVolKnob(parseFloat(volKnobInput.value)));
+updateVolKnob(audioParams.volume); // 초기 위치 반영
+
+volPanel.appendChild(volKnobWrap);
+volPanel.appendChild(volValueEl);
+volPanel.style.display = 'none'; // flex로 설정 후 none으로 덮어씀
+
+// ── DEV 모드: 음원 위치 조정 패널 ───────────────────────────
 const srcPanel = document.createElement('div');
 srcPanel.style.cssText = `
   display:none;background:rgba(0,0,0,0.7);padding:10px 14px;
@@ -873,8 +940,20 @@ srcPanel.appendChild(dirGrid);
 
 srcToggleBtn.addEventListener('click', (e) => {
   e.stopPropagation();
-  srcPanel.style.display = srcPanel.style.display === 'none' ? 'block' : 'none';
+  if (DEV_MODE) {
+    srcPanel.style.display = srcPanel.style.display === 'none' ? 'block' : 'none';
+    volPanel.style.display = 'none';
+  } else {
+    const showing = volPanel.style.display !== 'none';
+    volPanel.style.display = showing ? 'none' : 'flex';
+    srcPanel.style.display = 'none';
+  }
 });
+
+function updateNavButtons(): void {
+  prevBtn.style.visibility = currentTrackIdx === 0 ? 'hidden' : 'visible';
+  nextBtn.style.visibility = currentTrackIdx === tracks.length - 1 ? 'hidden' : 'visible';
+}
 
 function getTrackDisplayName(filename: string): string {
   return filename.replace(/\.[^.]+$/, '').replace(/-/g, ' ');
@@ -883,6 +962,7 @@ function getTrackDisplayName(filename: string): string {
 async function playTrack(idx: number): Promise<void> {
   if (tracks.length === 0) return;
   currentTrackIdx = ((idx % tracks.length) + tracks.length) % tracks.length;
+  updateNavButtons();
 
   const ctx = ensureAudioCtx();
   if (ctx.state === 'suspended') await ctx.resume();
@@ -907,7 +987,10 @@ async function playTrack(idx: number): Promise<void> {
     currentSource = ctx.createBufferSource();
     currentSource.buffer = audioBuf;
     currentSource.connect(gainNode!);
-    currentSource.onended = () => playTrack(currentTrackIdx + 1);
+    currentSource.onended = () => {
+      // 마지막 트랙이면 자동으로 다음 재생 안 함
+      if (currentTrackIdx < tracks.length - 1) playTrack(currentTrackIdx + 1);
+    };
     currentSource.start(0);
 
     trackNameEl.textContent = '♪ ' + getTrackDisplayName(tracks[currentTrackIdx]);
@@ -1022,5 +1105,6 @@ fetch('/data/song/tracks.json')
   .then((list: string[]) => {
     tracks = list;
     trackNameEl.textContent = getTrackDisplayName(tracks[0] ?? '트랙 없음');
+    updateNavButtons(); // 첫 트랙: prev 숨김
   })
   .catch(() => { trackNameEl.textContent = '트랙 없음'; });
