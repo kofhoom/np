@@ -29,18 +29,15 @@ require('./main.css');
 
 const DEV_MODE = true;
 
-const STORAGE_KEY = 'church_viewer_settings';
-function loadSettings(): any {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
 function saveSettings(data: any): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'church_viewer_settings.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
-const saved = loadSettings();
+const saved: any = {};
 
 const loadingEl = document.createElement('div');
 loadingEl.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-size:20px;z-index:999;`;
@@ -53,6 +50,7 @@ document.body.appendChild(targetEl);
 
 const viewer = new Viewer();
 let sky: Sky;
+let currentModel: any = null;
 
 const sunLight = new DirectionalLight(0xfff5e0, saved.sunLightIntensity ?? 3.15);
 sunLight.target.position.set(0, 0, 0);
@@ -123,7 +121,37 @@ const hideBtn = document.createElement('button');
 hideBtn.textContent = '패널 숨기기';
 hideBtn.style.cssText =
   'flex:1;background:#444;color:#fff;border:none;padding:6px;border-radius:4px;cursor:pointer;font-size:12px;';
+const loadBtn = document.createElement('button');
+loadBtn.textContent = '📂 불러오기';
+loadBtn.style.cssText =
+  'flex:1;background:#224466;color:#fff;border:none;padding:6px;border-radius:4px;cursor:pointer;font-size:12px;';
+loadBtn.addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target!.result as string);
+        Object.assign(saved, data);
+        applySettingsToScene(data);
+        loadBtn.textContent = '✅ 불러옴';
+        setTimeout(() => {
+          loadBtn.textContent = '📂 불러오기';
+        }, 1500);
+      } catch {
+        alert('JSON 파일 오류');
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+});
 topRow.appendChild(saveBtn);
+topRow.appendChild(loadBtn);
 topRow.appendChild(coordBtn);
 topRow.appendChild(hideBtn);
 panel.appendChild(topRow);
@@ -217,6 +245,7 @@ const GLB_CHUNKS = [
           if (obj.isMesh && obj.geometry) obj.geometry.computeBoundsTree();
         });
         acousticModel = model;
+        currentModel = model;
         if (saved.model) {
           model.position.set(saved.model.px, saved.model.py, saved.model.pz);
           model.rotation.set(saved.model.rx, saved.model.ry, saved.model.rz);
@@ -289,7 +318,7 @@ const GLB_CHUNKS = [
 
         saveBtn.addEventListener('click', () => {
           saveSettings({
-            ...loadSettings(),
+            ...saved,
             model: {
               px: model.position.x,
               py: model.position.y,
@@ -663,6 +692,36 @@ function setSpatialMode(on: boolean): void {
   for (const em of emitters) {
     em.spatialInputGain?.gain.setTargetAtTime(on ? 1 : 0, audioCtx.currentTime, 0.05);
     em.bypassGain?.gain.setTargetAtTime(on ? 0 : 1, audioCtx.currentTime, 0.05);
+  }
+}
+
+function applySettingsToScene(s: any): void {
+  if (s.camera) {
+    viewer.camera.position.set(s.camera.px, s.camera.py, s.camera.pz);
+    viewer.cameraControls.target.set(s.camera.tx, s.camera.ty, s.camera.tz);
+    viewer.cameraControls.update();
+  }
+  if (s.ambientIntensity !== undefined) ambient.intensity = s.ambientIntensity;
+  if (s.exposure !== undefined) viewer.renderer.toneMappingExposure = s.exposure;
+  if (s.sunLightIntensity !== undefined) sunLight.intensity = s.sunLightIntensity;
+  if (s.sunAzimuth !== undefined || s.sunElevation !== undefined)
+    updateSun(s.sunAzimuth ?? 315, s.sunElevation ?? 19.675);
+  if (s.model && currentModel) {
+    currentModel.position.set(s.model.px, s.model.py, s.model.pz);
+    currentModel.rotation.set(s.model.rx, s.model.ry, s.model.rz);
+    currentModel.scale.set(s.model.sx, s.model.sy, s.model.sz);
+  }
+  if (s.emitters) {
+    for (let i = 0; i < s.emitters.length && i < emitters.length; i++) {
+      const se = s.emitters[i];
+      const em = emitters[i];
+      em.x = se.x;
+      em.y = se.y;
+      em.z = se.z;
+      if (se.params) Object.assign(em.params, se.params);
+      applyEmitterPos(em);
+      applyEmitterParams(em);
+    }
   }
 }
 
