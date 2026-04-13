@@ -1,0 +1,47 @@
+{
+  "model": {
+    "px": 0,
+    "py": -11.4688,
+    "pz": 0,
+    "rx": -3.141592653589793,
+    "ry": 0.7596,
+    "rz": -3.141592653589793,
+    "sx": 1,
+    "sy": 1,
+    "sz": 1
+  },
+  "camera": {
+    "px": -0.7113512356392052,
+    "py": -9.839220709531094,
+    "pz": 1.8191953744443188,
+    "tx": -1.4539,
+    "ty": -9.7561,
+    "tz": 1.3890000000000002
+  },
+  "ambientIntensity": 1.66,
+  "exposure": 0.284,
+  "sunAzimuth": 315,
+  "sunElevation": 19.675,
+  "sunLightIntensity": 3.15,
+  "emitters": [
+    {
+      "name": "emitter 1",
+      "x": 7.003786691262628,
+      "y": -5.260000000000002,
+      "z": -7.362887599729201,
+      "params": {
+        "volume": 2,
+        "refDistance": 4.36075,
+        "rolloffFactor": 0.175,
+        "maxDistance": 100,
+        "distanceModel": "inverse",
+        "reverbWet": 0.6,
+        "reverbDuration": 1.01575,
+        "reverbDecay": 0.59375,
+        "preDelay": 0.0265,
+        "airAbsorption": 0.6,
+        "stereoWidth": 0.8
+      }
+    }
+  ]
+}

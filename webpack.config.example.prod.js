@@ -10,7 +10,7 @@ module.exports = {
   output: {
     filename: 'example.bundle.js',
     path: buildPath,
-    clean: { keep: /data\/model\// },
+    clean: { keep: /data\// },
   },
   mode: 'production',
   devtool: false,

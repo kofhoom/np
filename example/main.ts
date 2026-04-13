@@ -406,7 +406,6 @@ interface AudioParams {
   reverbWet: number;
   reverbDuration: number;
   reverbDecay: number;
-  earlyReflections: number;
   preDelay: number;
   airAbsorption: number;
   stereoWidth: number;
@@ -421,18 +420,19 @@ interface AudioEmitter {
   params: AudioParams;
   gainNode: GainNode | null;
   panner: PannerNode | null;
-  convolver: ConvolverNode | null;
-  wetGain: GainNode | null;
+  convolverA: ConvolverNode | null;
+  convolverB: ConvolverNode | null;
+  wetGainA: GainNode | null;
+  wetGainB: GainNode | null;
+  activeConv: 'A' | 'B';
+  lastIRUpdate: number;
   dryGain: GainNode | null;
   preDelayNode: DelayNode | null;
   spatialInputGain: GainNode | null;
   bypassGain: GainNode | null;
-  reflDelays: DelayNode[];
-  reflGainNodes: GainNode[];
   marker: Sprite;
   markerSphere: Mesh;
   isInside: boolean;
-  lastAutoDuration: number;
 }
 
 let audioCtx: AudioContext | null = null;
@@ -450,17 +450,14 @@ const activeEm = (): AudioEmitter => emitters[activeEmitterIdx];
 let acousticModel: any = null;
 const roomRaycaster = new Raycaster();
 const insideCheckRaycaster = new Raycaster();
-const SPEED_OF_SOUND = 343;
 const _s = 1 / Math.sqrt(3);
 const REFLECT_DIRS = [
-  // 6 축방향
   new Vector3(1, 0, 0),
   new Vector3(-1, 0, 0),
   new Vector3(0, 1, 0),
   new Vector3(0, -1, 0),
   new Vector3(0, 0, 1),
   new Vector3(0, 0, -1),
-  // 8 대각선방향 (ico-sphere 근사)
   new Vector3(_s, _s, _s),
   new Vector3(-_s, _s, _s),
   new Vector3(_s, -_s, _s),
@@ -516,18 +513,17 @@ function isPointInsideMesh(px: number, py: number, pz: number): boolean {
 
 function defaultParams(src?: any): AudioParams {
   return {
-    volume: src?.volume ?? 1.5,
-    refDistance: src?.refDistance ?? 0.1,
-    rolloffFactor: src?.rolloffFactor ?? 1.0,
-    maxDistance: src?.maxDistance ?? 150,
-    distanceModel: (src?.distanceModel ?? 'linear') as DistanceModelType,
-    reverbWet: src?.reverbWet ?? 0.7625,
-    reverbDuration: src?.reverbDuration ?? 1.56025,
-    reverbDecay: src?.reverbDecay ?? 8,
-    earlyReflections: src?.earlyReflections ?? 0.7,
-    preDelay: src?.preDelay ?? 0.04,
+    volume: src?.volume ?? 2,
+    refDistance: src?.refDistance ?? 1.0,
+    rolloffFactor: src?.rolloffFactor ?? 0.5,
+    maxDistance: src?.maxDistance ?? 100,
+    distanceModel: (src?.distanceModel ?? 'inverse') as DistanceModelType,
+    reverbWet: src?.reverbWet ?? 0.83,
+    reverbDuration: src?.reverbDuration ?? 1.0,
+    reverbDecay: src?.reverbDecay ?? 1,
+    preDelay: src?.preDelay ?? 0.01,
     airAbsorption: src?.airAbsorption ?? 0.6,
-    stereoWidth: src?.stereoWidth ?? 0.5,
+    stereoWidth: src?.stereoWidth ?? 0.8,
   };
 }
 
@@ -580,41 +576,27 @@ function createEmitterNodes(em: AudioEmitter): void {
   em.panner.refDistance = p.refDistance;
   em.panner.rolloffFactor = p.rolloffFactor;
   em.panner.maxDistance = p.maxDistance;
-  em.panner.coneInnerAngle = 90;
-  em.panner.coneOuterAngle = 200;
-  em.panner.coneOuterGain = 0.1;
-  em.panner.orientationX.value = 0;
-  em.panner.orientationY.value = 0;
-  em.panner.orientationZ.value = -1;
+  em.panner.coneInnerAngle = 360;
+  em.panner.coneOuterAngle = 360;
+  em.panner.coneOuterGain = 1;
   em.panner.positionX.value = em.x;
   em.panner.positionY.value = em.y;
   em.panner.positionZ.value = em.z;
   em.preDelayNode = audioCtx.createDelay(0.5);
   em.preDelayNode.delayTime.value = p.preDelay;
-  em.convolver = audioCtx.createConvolver();
-  em.convolver.buffer = makeImpulseResponse(
-    audioCtx,
-    p.reverbDuration,
-    p.reverbDecay,
-    p.stereoWidth,
-  );
-  em.wetGain = audioCtx.createGain();
-  em.wetGain.gain.value = p.reverbWet;
+  const ir = makeImpulseResponse(audioCtx, p.reverbDuration, p.reverbDecay, p.stereoWidth);
+  em.convolverA = audioCtx.createConvolver();
+  em.convolverA.buffer = ir;
+  em.convolverB = audioCtx.createConvolver();
+  em.convolverB.buffer = ir;
+  em.wetGainA = audioCtx.createGain();
+  em.wetGainA.gain.value = p.reverbWet;
+  em.wetGainB = audioCtx.createGain();
+  em.wetGainB.gain.value = 0;
+  em.activeConv = 'A';
+  em.lastIRUpdate = 0;
   em.dryGain = audioCtx.createGain();
-  em.dryGain.gain.value = 1.0 - p.reverbWet;
-  em.reflDelays = [];
-  em.reflGainNodes = [];
-  for (let i = 0; i < REFLECT_DIRS.length; i++) {
-    const d = audioCtx.createDelay(1.0);
-    d.delayTime.value = 0.05;
-    const g = audioCtx.createGain();
-    g.gain.value = 0;
-    em.panner.connect(d);
-    d.connect(g);
-    g.connect(compressor);
-    em.reflDelays.push(d);
-    em.reflGainNodes.push(g);
-  }
+  em.dryGain.gain.value = 0.5;
   em.spatialInputGain = audioCtx.createGain();
   em.spatialInputGain.gain.value = spatialMode ? 1 : 0;
   em.bypassGain = audioCtx.createGain();
@@ -623,20 +605,24 @@ function createEmitterNodes(em: AudioEmitter): void {
   em.spatialInputGain.connect(em.panner);
   em.panner.connect(em.dryGain);
   em.panner.connect(em.preDelayNode);
-  em.preDelayNode.connect(em.convolver);
-  em.convolver.connect(em.wetGain);
+  em.preDelayNode.connect(em.convolverA);
+  em.preDelayNode.connect(em.convolverB);
+  em.convolverA.connect(em.wetGainA);
+  em.convolverB.connect(em.wetGainB);
   em.dryGain.connect(compressor);
-  em.wetGain.connect(compressor);
+  em.wetGainA.connect(compressor);
+  em.wetGainB.connect(compressor);
   em.gainNode.connect(em.bypassGain);
   em.bypassGain.connect(compressor);
   if (currentSource) currentSource.connect(em.gainNode);
 }
 
 function applyEmitterPos(em: AudioEmitter): void {
-  if (em.panner) {
-    em.panner.positionX.value = em.x;
-    em.panner.positionY.value = em.y;
-    em.panner.positionZ.value = em.z;
+  if (em.panner && audioCtx) {
+    const t = audioCtx.currentTime;
+    em.panner.positionX.setTargetAtTime(em.x, t, 0.03);
+    em.panner.positionY.setTargetAtTime(em.y, t, 0.03);
+    em.panner.positionZ.setTargetAtTime(em.z, t, 0.03);
   }
   em.marker.position.set(em.x, em.y, em.z);
   em.markerSphere.position.set(em.x, em.y, em.z);
@@ -649,9 +635,9 @@ function applyEmitterParams(em: AudioEmitter): void {
   if (
     !em.panner ||
     !em.gainNode ||
-    !em.wetGain ||
     !em.dryGain ||
-    !em.convolver ||
+    !em.wetGainA ||
+    !em.wetGainB ||
     !audioCtx ||
     !em.preDelayNode
   )
@@ -662,15 +648,33 @@ function applyEmitterParams(em: AudioEmitter): void {
   em.panner.rolloffFactor = p.rolloffFactor;
   em.panner.maxDistance = p.maxDistance;
   em.panner.distanceModel = p.distanceModel;
-  em.wetGain.gain.value = p.reverbWet;
-  em.dryGain.gain.value = 1.0 - p.reverbWet;
+  em.dryGain.gain.value = 0.5;
   em.preDelayNode.delayTime.value = p.preDelay;
-  em.convolver.buffer = makeImpulseResponse(
-    audioCtx,
-    p.reverbDuration,
-    p.reverbDecay,
-    p.stereoWidth,
-  );
+  const newIR = makeImpulseResponse(audioCtx, p.reverbDuration, p.reverbDecay, p.stereoWidth);
+  crossfadeConvolver(em, newIR, p.reverbWet);
+}
+
+function crossfadeConvolver(em: AudioEmitter, newIR: AudioBuffer, targetWet: number): void {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  if (em.activeConv === 'A') {
+    em.convolverB!.buffer = newIR;
+    em.wetGainB!.gain.cancelScheduledValues(now);
+    em.wetGainB!.gain.setValueAtTime(0, now);
+    em.wetGainB!.gain.linearRampToValueAtTime(targetWet, now + 0.3);
+    em.wetGainA!.gain.cancelScheduledValues(now);
+    em.wetGainA!.gain.setTargetAtTime(0, now, 0.1);
+    em.activeConv = 'B';
+  } else {
+    em.convolverA!.buffer = newIR;
+    em.wetGainA!.gain.cancelScheduledValues(now);
+    em.wetGainA!.gain.setValueAtTime(0, now);
+    em.wetGainA!.gain.linearRampToValueAtTime(targetWet, now + 0.3);
+    em.wetGainB!.gain.cancelScheduledValues(now);
+    em.wetGainB!.gain.setTargetAtTime(0, now, 0.1);
+    em.activeConv = 'A';
+  }
+  em.lastIRUpdate = Date.now();
 }
 
 function setSpatialMode(on: boolean): void {
@@ -708,6 +712,30 @@ function applySettingsToScene(s: any): void {
       if (se.params) Object.assign(em.params, se.params);
       applyEmitterPos(em);
       applyEmitterParams(em);
+      // 첫 번째 emitter(활성) 슬라이더 UI 업데이트
+      if (i === 0) {
+        const p = em.params;
+        const vals = [
+          em.x,
+          em.y,
+          em.z,
+          p.volume,
+          p.refDistance,
+          p.rolloffFactor,
+          p.maxDistance,
+          p.reverbWet,
+          p.reverbDuration,
+          p.reverbDecay,
+          p.preDelay,
+          p.stereoWidth,
+        ];
+        srcPanel.querySelectorAll<HTMLInputElement>('input[type=range]').forEach((inp, idx) => {
+          if (idx >= vals.length) return;
+          inp.value = String(vals[idx]);
+          const sib = inp.nextSibling as HTMLElement;
+          if (sib) sib.textContent = vals[idx].toFixed(2);
+        });
+      }
     }
   }
 }
@@ -761,18 +789,19 @@ function createEmitter(
     params: defaultParams(savedParams),
     gainNode: null,
     panner: null,
-    convolver: null,
-    wetGain: null,
+    convolverA: null,
+    convolverB: null,
+    wetGainA: null,
+    wetGainB: null,
+    activeConv: 'A' as 'A' | 'B',
+    lastIRUpdate: 0,
     dryGain: null,
     preDelayNode: null,
     spatialInputGain: null,
     bypassGain: null,
-    reflDelays: [],
-    reflGainNodes: [],
     marker,
     markerSphere,
     isInside: true,
-    lastAutoDuration: 0,
   };
 }
 
@@ -1044,9 +1073,6 @@ makeAudioSlider('잔향 길이(초)', 0.1, 10, em0.params.reverbDuration, (v) =>
 makeAudioSlider('감쇠 곡선', 0.1, 8, em0.params.reverbDecay, (v) => {
   activeEm().params.reverbDecay = v;
 });
-makeAudioSlider('조기 반사음', 0, 1.5, em0.params.earlyReflections, (v) => {
-  activeEm().params.earlyReflections = v;
-});
 makeAudioSlider('프리딜레이(초)', 0, 0.2, em0.params.preDelay, (v) => {
   activeEm().params.preDelay = v;
 });
@@ -1060,7 +1086,9 @@ const autoRow = document.createElement('div');
 autoRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;';
 const autoToggle = document.createElement('input');
 autoToggle.type = 'checkbox';
+autoRoomMode = false;
 autoToggle.checked = autoRoomMode;
+
 const autoRoomLabel = document.createElement('span');
 autoRoomLabel.textContent = '공간 기반 잔향 자동 조절';
 autoRoomLabel.style.cssText = 'color:#ccc;font-size:11px;';
@@ -1075,10 +1103,6 @@ roomSizeEl = document.createElement('div');
 roomSizeEl.style.cssText = 'color:#5af;font-size:10px;margin:4px 0 6px;min-height:14px;';
 roomSizeEl.textContent = '모델 로드 후 활성화';
 srcPanel.appendChild(roomSizeEl);
-
-makeAudioSlider('반사 강도', 0, 2, em0.params.earlyReflections, (v) => {
-  activeEm().params.earlyReflections = v;
-});
 
 const snapBtn = document.createElement('button');
 snapBtn.textContent = '📍 현재 위치로 설정';
@@ -1236,15 +1260,16 @@ setInterval(() => {
   viewer.camera.getWorldDirection(fwd);
   const up = viewer.camera.up;
   const l = audioCtx.listener;
-  l.positionX.value = pos.x;
-  l.positionY.value = pos.y;
-  l.positionZ.value = pos.z;
-  l.forwardX.value = fwd.x;
-  l.forwardY.value = fwd.y;
-  l.forwardZ.value = fwd.z;
-  l.upX.value = up.x;
-  l.upY.value = up.y;
-  l.upZ.value = up.z;
+  const t = audioCtx.currentTime;
+  l.positionX.setTargetAtTime(pos.x, t, 0.03);
+  l.positionY.setTargetAtTime(pos.y, t, 0.03);
+  l.positionZ.setTargetAtTime(pos.z, t, 0.03);
+  l.forwardX.setTargetAtTime(fwd.x, t, 0.03);
+  l.forwardY.setTargetAtTime(fwd.y, t, 0.03);
+  l.forwardZ.setTargetAtTime(fwd.z, t, 0.03);
+  l.upX.setTargetAtTime(up.x, t, 0.03);
+  l.upY.setTargetAtTime(up.y, t, 0.03);
+  l.upZ.setTargetAtTime(up.z, t, 0.03);
 
   if (acousticModel) {
     const now = Date.now();
@@ -1267,34 +1292,17 @@ setInterval(() => {
       }
 
       const listenerIsInside = isPointInsideMesh(pos.x, pos.y, pos.z);
-
+      const avgDist = wallDists.reduce((a, b) => a + b, 0) / wallDists.length;
       for (const em of emitters) {
         if (!em.gainNode || !audioCtx) continue;
 
-        if (em.reflDelays.length === REFLECT_DIRS.length) {
-          for (let i = 0; i < REFLECT_DIRS.length; i++) {
-            const wallDist = wallDists[i];
-            const absorption = wallAbsorptions[i];
-            const delayTime = Math.min((2 * wallDist) / SPEED_OF_SOUND, 0.9);
-            em.reflDelays[i].delayTime.setTargetAtTime(delayTime, audioCtx.currentTime, 0.6);
-            const reflGain =
-              wallDist < 100
-                ? Math.min(
-                    0.35,
-                    (em.params.earlyReflections * (1 - absorption)) / (wallDist * 0.5 + 1),
-                  )
-                : 0;
-            em.reflGainNodes[i].gain.setTargetAtTime(reflGain, audioCtx.currentTime, 0.4);
-          }
-        }
-
-        if (autoRoomMode && em.wetGain && em.dryGain && em.preDelayNode) {
-          const avgDist = wallDists.reduce((a, b) => a + b, 0) / wallDists.length;
+        if (autoRoomMode && em.wetGainA && em.wetGainB && em.dryGain && em.preDelayNode) {
           const srcDist = viewer.camera.position.distanceTo(new Vector3(em.x, em.y, em.z));
           const bothInside = em.isInside && listenerIsInside;
 
           if (!bothInside) {
-            em.wetGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+            em.wetGainA.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+            em.wetGainB.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
             em.dryGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
             em.gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
           } else {
@@ -1302,25 +1310,26 @@ setInterval(() => {
             const distFactor = Math.min(1.0, srcDist / (em.params.refDistance * 3));
             const roomFactor = Math.min(1.0, avgDist / 30);
             const autoWet = Math.min(
-              0.88,
-              Math.max(0.1, 0.15 + distFactor * 0.45 + roomFactor * 0.3),
+              0.95,
+              Math.max(0.5, 0.5 + distFactor * 0.35 + roomFactor * 0.25),
             );
-            const autoVol = Math.min(1.8, Math.max(0.02, em.params.volume / (srcDist * 0.15 + 1)));
+            const autoVol = em.params.volume;
             const autoStereoWidth = Math.min(1.0, Math.max(0.05, avgDist / 25));
 
-            em.wetGain.gain.setTargetAtTime(autoWet, audioCtx.currentTime, 1.2);
-            em.dryGain.gain.setTargetAtTime(1.0 - autoWet, audioCtx.currentTime, 1.2);
+            em.dryGain.gain.setTargetAtTime(0.5, audioCtx.currentTime, 1.2);
             em.preDelayNode.delayTime.setTargetAtTime(autoPreDelay, audioCtx.currentTime, 1.0);
             em.gainNode.gain.setTargetAtTime(autoVol, audioCtx.currentTime, 1.2);
 
-            if (em.lastAutoDuration === 0 && em.convolver) {
-              em.lastAutoDuration = Math.min(7.0, Math.max(0.5, avgDist * 0.18));
-              em.convolver.buffer = makeImpulseResponse(
+            const nowMs = Date.now();
+            if (nowMs - em.lastIRUpdate > 1000) {
+              const autoDuration = Math.min(7.0, Math.max(0.5, avgDist * 0.18));
+              const newIR = makeImpulseResponse(
                 audioCtx,
-                em.lastAutoDuration,
+                autoDuration,
                 em.params.reverbDecay,
                 autoStereoWidth,
               );
+              crossfadeConvolver(em, newIR, autoWet);
             }
 
             if (roomSizeEl && em === activeEm()) {

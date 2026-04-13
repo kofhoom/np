@@ -15,10 +15,19 @@ module.exports = {
   devServer: {
     compress: true,
     port: 5000,
+    watchFiles: { options: { ignored: ['**/docs/data/**', '**/data/**'] } },
     static: [
       { directory: path.resolve(__dirname, 'example') },
-      { directory: path.resolve(__dirname, 'docs'), publicPath: '/' },
-      { directory: path.resolve(__dirname), publicPath: '/' },
+      {
+        directory: path.resolve(__dirname, 'docs'),
+        publicPath: '/',
+        watch: { ignored: /data[\\/]/ },
+      },
+      {
+        directory: path.resolve(__dirname),
+        publicPath: '/',
+        watch: { ignored: /data[\\/]/ },
+      },
     ],
     setupMiddlewares(middlewares, devServer) {
       devServer.app.use('/save-settings', (req, res) => {
