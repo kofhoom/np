@@ -184,7 +184,7 @@ function sep(label: string): void {
 // ── GLB 로드 ──────────────────────────────────────────────────
 const loader = new GLTFLoader();
 loader.load(
-  'data/interior-view-of-orthodox-church-of-al-tahira/source/brand%20new%20interior/interior_view_of_orthodox_church_of_al-tahira%20(1).glb',
+  'https://github.com/kofhoom/np/releases/download/v1.0.0/interior_view_of_orthodox_church_of_al-tahira_.1.glb',
   (gltf) => {
     const model = gltf.scene;
     model.traverse((obj: any) => {
