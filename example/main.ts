@@ -503,7 +503,7 @@ function defaultParams(src?: any): AudioParams {
     volume: src?.volume ?? 1.5,
     refDistance: src?.refDistance ?? 0.1,
     rolloffFactor: src?.rolloffFactor ?? 1.0,
-    maxDistance: src?.maxDistance ?? 20,
+    maxDistance: src?.maxDistance ?? 150,
     distanceModel: (src?.distanceModel ?? 'linear') as DistanceModelType,
     reverbWet: src?.reverbWet ?? 0.7625,
     reverbDuration: src?.reverbDuration ?? 1.56025,
@@ -1304,6 +1304,8 @@ fetch('data/song/tracks.json')
     tracks = list;
     trackNameEl.textContent = getTrackDisplayName(tracks[0] ?? '트랙 없음');
     updateNavButtons();
+    // 유저가 이미 클릭했지만 tracks가 아직 안 로드됐던 경우 → 지금 재생
+    if (audioCtx) playTrack(0);
   })
   .catch(() => {
     trackNameEl.textContent = '트랙 없음';
