@@ -1,3 +1,4 @@
 {
-  "(*.jsx|*.js|*.ts|*.tsx)": ["prettier --write --ignore-unknown", "eslint"]
+  "src/**/*.{js,jsx,ts,tsx}": ["prettier --write --ignore-unknown", "eslint"],
+  "example/**/*.{js,jsx,ts,tsx}": ["prettier --write --ignore-unknown"]
 }
