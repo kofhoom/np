@@ -1,6 +1,6 @@
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-
 const path = require('path');
+const fs = require('fs');
 
 const buildPath = path.resolve(__dirname, 'build');
 
@@ -17,8 +17,21 @@ module.exports = {
     port: 5000,
     static: [
       { directory: path.resolve(__dirname, 'example') },
+      { directory: path.resolve(__dirname, 'docs'), publicPath: '/' },
       { directory: path.resolve(__dirname), publicPath: '/' },
     ],
+    setupMiddlewares(middlewares, devServer) {
+      devServer.app.use('/save-settings', (req, res) => {
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          const dest = path.resolve(__dirname, 'docs/data/settings.json');
+          fs.writeFileSync(dest, body, 'utf8');
+          res.json({ ok: true });
+        });
+      });
+      return middlewares;
+    },
   },
   stats: 'errors-only',
   resolve: {

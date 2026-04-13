@@ -27,17 +27,34 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-const DEV_MODE = true;
+const DEV_MODE = false;
 
 function saveSettings(data: any): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'church_viewer_settings.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
+  const json = JSON.stringify(data, null, 2);
+  fetch('/save-settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: json,
+  }).catch(() => {
+    // 로컬 서버 없으면(프로덕션) 파일 다운로드로 폴백
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'settings.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
 }
 const saved: any = {};
+fetch('data/settings.json')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((data) => {
+    if (data) {
+      Object.assign(saved, data);
+      applySettingsToScene(data);
+    }
+  })
+  .catch(() => {});
 
 const loadingEl = document.createElement('div');
 loadingEl.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-size:20px;z-index:999;`;
@@ -121,37 +138,7 @@ const hideBtn = document.createElement('button');
 hideBtn.textContent = '패널 숨기기';
 hideBtn.style.cssText =
   'flex:1;background:#444;color:#fff;border:none;padding:6px;border-radius:4px;cursor:pointer;font-size:12px;';
-const loadBtn = document.createElement('button');
-loadBtn.textContent = '📂 불러오기';
-loadBtn.style.cssText =
-  'flex:1;background:#224466;color:#fff;border:none;padding:6px;border-radius:4px;cursor:pointer;font-size:12px;';
-loadBtn.addEventListener('click', () => {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.json';
-  input.onchange = (e) => {
-    const file = (e.target as HTMLInputElement).files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target!.result as string);
-        Object.assign(saved, data);
-        applySettingsToScene(data);
-        loadBtn.textContent = '✅ 불러옴';
-        setTimeout(() => {
-          loadBtn.textContent = '📂 불러오기';
-        }, 1500);
-      } catch {
-        alert('JSON 파일 오류');
-      }
-    };
-    reader.readAsText(file);
-  };
-  input.click();
-});
 topRow.appendChild(saveBtn);
-topRow.appendChild(loadBtn);
 topRow.appendChild(coordBtn);
 topRow.appendChild(hideBtn);
 panel.appendChild(topRow);
