@@ -27,7 +27,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-const DEV_MODE = false;
+const DEV_MODE = true;
 
 function saveSettings(data: any): void {
   const json = JSON.stringify(data, null, 2);
@@ -120,11 +120,11 @@ panel.appendChild(titleEl);
 const topRow = document.createElement('div');
 topRow.style.cssText = 'display:flex;gap:6px;margin-bottom:10px;';
 const saveBtn = document.createElement('button');
-saveBtn.textContent = '💾 설정 저장';
+saveBtn.textContent = '설정 저장';
 saveBtn.style.cssText =
   'flex:1;background:#226622;color:#fff;border:none;padding:6px;border-radius:4px;cursor:pointer;font-size:12px;';
 const coordBtn = document.createElement('button');
-coordBtn.textContent = '📍 좌표 확인';
+coordBtn.textContent = '좌표 확인';
 coordBtn.style.cssText =
   'flex:1;background:#554400;color:#fff;border:none;padding:6px;border-radius:4px;cursor:pointer;font-size:12px;';
 coordBtn.addEventListener('click', () => {
@@ -288,7 +288,7 @@ const GLB_CHUNKS = [
           viewer.renderer.toneMappingExposure = v;
         });
 
-        sep('☀️ 태양 위치');
+        sep('태양 위치');
         let curAz = sunAzimuth,
           curEl = sunElevation;
         makeSlider('방위각 (좌우)', 0, 360, sunAzimuth, (v) => {
