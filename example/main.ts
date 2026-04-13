@@ -183,174 +183,201 @@ function sep(label: string): void {
 
 // ── GLB 로드 ──────────────────────────────────────────────────
 const loader = new GLTFLoader();
-loader.load(
-  'https://github.com/kofhoom/np/releases/download/v1.0.0/interior_view_of_orthodox_church_of_al-tahira_.1.glb',
-  (gltf) => {
-    const model = gltf.scene;
-    model.traverse((obj: any) => {
-      if (obj.isMesh && obj.geometry) obj.geometry.computeBoundsTree();
-    });
-    acousticModel = model;
-    if (saved.model) {
-      model.position.set(saved.model.px, saved.model.py, saved.model.pz);
-      model.rotation.set(saved.model.rx, saved.model.ry, saved.model.rz);
-      model.scale.set(saved.model.sx, saved.model.sy, saved.model.sz);
-    } else {
-      model.position.set(0, -11.4688, 0);
-      model.rotation.set(-Math.PI, 0.7596, -Math.PI);
+
+const GLB_CHUNKS = [
+  'data/model/model.part0',
+  'data/model/model.part1',
+  'data/model/model.part2',
+  'data/model/model.part3',
+];
+
+(async () => {
+  try {
+    loadingEl.textContent = '모델 로딩 중...';
+    const buffers = await Promise.all(
+      GLB_CHUNKS.map(async (url, i) => {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`chunk ${i} failed: ${res.status}`);
+        return res.arrayBuffer();
+      }),
+    );
+    const total = buffers.reduce((s, b) => s + b.byteLength, 0);
+    const combined = new Uint8Array(total);
+    let offset = 0;
+    for (const buf of buffers) {
+      combined.set(new Uint8Array(buf), offset);
+      offset += buf.byteLength;
     }
-    viewer.scene.add(model);
-    model.updateMatrixWorld(true);
-
-    const box = new Box3().setFromObject(model);
-    const center = new Vector3();
-    box.getCenter(center);
-    const size = new Vector3();
-    box.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z) || 50;
-
-    sep('모델 변환');
-    const modelTC = new TransformControls(viewer.camera, viewer.renderer.domElement);
-    modelTC.attach(model);
-    modelTC.addEventListener('dragging-changed', (e: any) => {
-      viewer.cameraControls.enabled = !e.value;
-    });
-    viewer.scene.add(modelTC);
-
-    const modelBtnRow = document.createElement('div');
-    modelBtnRow.style.cssText = 'display:flex;gap:6px;margin:4px 0;';
-    (['이동', '회전', '크기', '숨기기'] as const).forEach((txt, i) => {
-      const btn = document.createElement('button');
-      btn.textContent = txt;
-      btn.style.cssText = `flex:1;background:${i === 0 ? '#2255aa' : '#444'};color:#fff;border:none;padding:4px;border-radius:4px;cursor:pointer;font-size:10px;`;
-      btn.addEventListener('click', () => {
-        if (i === 3) {
-          modelTC.visible = false;
-        } else {
-          modelTC.visible = true;
-          modelTC.setMode(['translate', 'rotate', 'scale'][i] as any);
-        }
-        modelBtnRow.querySelectorAll('button').forEach((b, j) => {
-          (b as HTMLElement).style.background = j === i ? '#2255aa' : '#444';
+    loader.parse(
+      combined.buffer,
+      '',
+      (gltf) => {
+        const model = gltf.scene;
+        model.traverse((obj: any) => {
+          if (obj.isMesh && obj.geometry) obj.geometry.computeBoundsTree();
         });
-      });
-      modelBtnRow.appendChild(btn);
-    });
-    panel.appendChild(modelBtnRow);
+        acousticModel = model;
+        if (saved.model) {
+          model.position.set(saved.model.px, saved.model.py, saved.model.pz);
+          model.rotation.set(saved.model.rx, saved.model.ry, saved.model.rz);
+          model.scale.set(saved.model.sx, saved.model.sy, saved.model.sz);
+        } else {
+          model.position.set(0, -11.4688, 0);
+          model.rotation.set(-Math.PI, 0.7596, -Math.PI);
+        }
+        viewer.scene.add(model);
+        model.updateMatrixWorld(true);
 
-    sep('전역 설정');
-    makeSlider('환경광', 0, 2, saved.ambientIntensity ?? 1.66, (v) => {
-      ambient.intensity = v;
-    });
-    makeSlider('노출', 0.2, 3, saved.exposure ?? 0.284, (v) => {
-      viewer.renderer.toneMappingExposure = v;
-    });
+        const box = new Box3().setFromObject(model);
+        const center = new Vector3();
+        box.getCenter(center);
+        const size = new Vector3();
+        box.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z) || 50;
 
-    sep('☀️ 태양 위치');
-    let curAz = sunAzimuth,
-      curEl = sunElevation;
-    makeSlider('방위각 (좌우)', 0, 360, sunAzimuth, (v) => {
-      curAz = v;
-      updateSun(curAz, curEl);
-    });
-    makeSlider('고도 (상하)', -5, 30, sunElevation, (v) => {
-      curEl = v;
-      updateSun(curAz, curEl);
-    });
-    makeSlider('태양 빛 강도', 0, 10, saved.sunLightIntensity ?? 3.15, (v) => {
-      sunLight.intensity = v;
-    });
+        sep('모델 변환');
+        const modelTC = new TransformControls(viewer.camera, viewer.renderer.domElement);
+        modelTC.attach(model);
+        modelTC.addEventListener('dragging-changed', (e: any) => {
+          viewer.cameraControls.enabled = !e.value;
+        });
+        viewer.scene.add(modelTC);
 
-    saveBtn.addEventListener('click', () => {
-      saveSettings({
-        ...loadSettings(),
-        model: {
-          px: model.position.x,
-          py: model.position.y,
-          pz: model.position.z,
-          rx: model.rotation.x,
-          ry: model.rotation.y,
-          rz: model.rotation.z,
-          sx: model.scale.x,
-          sy: model.scale.y,
-          sz: model.scale.z,
-        },
-        camera: {
-          px: viewer.camera.position.x,
-          py: viewer.camera.position.y,
-          pz: viewer.camera.position.z,
-          tx: viewer.cameraControls.target.x,
-          ty: viewer.cameraControls.target.y,
-          tz: viewer.cameraControls.target.z,
-        },
-        ambientIntensity: ambient.intensity,
-        exposure: viewer.renderer.toneMappingExposure,
-        sunAzimuth: curAz,
-        sunElevation: curEl,
-        sunLightIntensity: sunLight.intensity,
-        emitters: emitters.map((em) => ({
-          name: em.name,
-          x: em.x,
-          y: em.y,
-          z: em.z,
-          params: { ...em.params },
-        })),
-      });
-      saveBtn.textContent = '✅ 저장됨';
-      setTimeout(() => {
-        saveBtn.textContent = '💾 설정 저장';
-      }, 1500);
-    });
+        const modelBtnRow = document.createElement('div');
+        modelBtnRow.style.cssText = 'display:flex;gap:6px;margin:4px 0;';
+        (['이동', '회전', '크기', '숨기기'] as const).forEach((txt, i) => {
+          const btn = document.createElement('button');
+          btn.textContent = txt;
+          btn.style.cssText = `flex:1;background:${i === 0 ? '#2255aa' : '#444'};color:#fff;border:none;padding:4px;border-radius:4px;cursor:pointer;font-size:10px;`;
+          btn.addEventListener('click', () => {
+            if (i === 3) {
+              modelTC.visible = false;
+            } else {
+              modelTC.visible = true;
+              modelTC.setMode(['translate', 'rotate', 'scale'][i] as any);
+            }
+            modelBtnRow.querySelectorAll('button').forEach((b, j) => {
+              (b as HTMLElement).style.background = j === i ? '#2255aa' : '#444';
+            });
+          });
+          modelBtnRow.appendChild(btn);
+        });
+        panel.appendChild(modelBtnRow);
 
-    const raycaster = new Raycaster();
-    targetEl.addEventListener('dblclick', (e) => {
-      const mouse = new Vector2(
-        (e.clientX / window.innerWidth) * 2 - 1,
-        -(e.clientY / window.innerHeight) * 2 + 1,
-      );
-      raycaster.setFromCamera(mouse, viewer.camera);
-      const hits = raycaster.intersectObject(model, true);
-      if (hits.length > 0) {
-        const p = hits[0].point;
-        viewer.cameraControls.target.set(p.x, p.y, p.z);
-        const dx2 = viewer.camera.position.x - p.x,
-          dy2 = viewer.camera.position.y - p.y,
-          dz2 = viewer.camera.position.z - p.z;
-        const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
-        viewer.cameraControls.minPolarAngle = Math.acos(dy2 / dist2);
+        sep('전역 설정');
+        makeSlider('환경광', 0, 2, saved.ambientIntensity ?? 1.66, (v) => {
+          ambient.intensity = v;
+        });
+        makeSlider('노출', 0.2, 3, saved.exposure ?? 0.284, (v) => {
+          viewer.renderer.toneMappingExposure = v;
+        });
+
+        sep('☀️ 태양 위치');
+        let curAz = sunAzimuth,
+          curEl = sunElevation;
+        makeSlider('방위각 (좌우)', 0, 360, sunAzimuth, (v) => {
+          curAz = v;
+          updateSun(curAz, curEl);
+        });
+        makeSlider('고도 (상하)', -5, 30, sunElevation, (v) => {
+          curEl = v;
+          updateSun(curAz, curEl);
+        });
+        makeSlider('태양 빛 강도', 0, 10, saved.sunLightIntensity ?? 3.15, (v) => {
+          sunLight.intensity = v;
+        });
+
+        saveBtn.addEventListener('click', () => {
+          saveSettings({
+            ...loadSettings(),
+            model: {
+              px: model.position.x,
+              py: model.position.y,
+              pz: model.position.z,
+              rx: model.rotation.x,
+              ry: model.rotation.y,
+              rz: model.rotation.z,
+              sx: model.scale.x,
+              sy: model.scale.y,
+              sz: model.scale.z,
+            },
+            camera: {
+              px: viewer.camera.position.x,
+              py: viewer.camera.position.y,
+              pz: viewer.camera.position.z,
+              tx: viewer.cameraControls.target.x,
+              ty: viewer.cameraControls.target.y,
+              tz: viewer.cameraControls.target.z,
+            },
+            ambientIntensity: ambient.intensity,
+            exposure: viewer.renderer.toneMappingExposure,
+            sunAzimuth: curAz,
+            sunElevation: curEl,
+            sunLightIntensity: sunLight.intensity,
+            emitters: emitters.map((em) => ({
+              name: em.name,
+              x: em.x,
+              y: em.y,
+              z: em.z,
+              params: { ...em.params },
+            })),
+          });
+          saveBtn.textContent = '✅ 저장됨';
+          setTimeout(() => {
+            saveBtn.textContent = '💾 설정 저장';
+          }, 1500);
+        });
+
+        const raycaster = new Raycaster();
+        targetEl.addEventListener('dblclick', (e) => {
+          const mouse = new Vector2(
+            (e.clientX / window.innerWidth) * 2 - 1,
+            -(e.clientY / window.innerHeight) * 2 + 1,
+          );
+          raycaster.setFromCamera(mouse, viewer.camera);
+          const hits = raycaster.intersectObject(model, true);
+          if (hits.length > 0) {
+            const p = hits[0].point;
+            viewer.cameraControls.target.set(p.x, p.y, p.z);
+            const dx2 = viewer.camera.position.x - p.x,
+              dy2 = viewer.camera.position.y - p.y,
+              dz2 = viewer.camera.position.z - p.z;
+            const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
+            viewer.cameraControls.minPolarAngle = Math.acos(dy2 / dist2);
+            viewer.cameraControls.maxPolarAngle = Math.PI;
+            viewer.cameraControls.update();
+          }
+        });
+
+        viewer.camera.up.set(0, 1, 0);
+        viewer.camera.near = 0.01;
+        viewer.camera.far = maxDim * 1000;
+        if (saved.camera) {
+          viewer.camera.position.set(saved.camera.px, saved.camera.py, saved.camera.pz);
+          viewer.cameraControls.target.set(saved.camera.tx, saved.camera.ty, saved.camera.tz);
+        } else {
+          viewer.camera.position.set(-2.0876, -9.8333, 1.9685);
+          viewer.cameraControls.target.set(-1.4539, -9.7561, 1.389);
+        }
+        viewer.camera.updateProjectionMatrix();
+
+        const initTarget = viewer.cameraControls.target;
+        const dx = viewer.camera.position.x - initTarget.x,
+          dy = viewer.camera.position.y - initTarget.y,
+          dz = viewer.camera.position.z - initTarget.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        viewer.cameraControls.minPolarAngle = Math.acos(dy / dist);
         viewer.cameraControls.maxPolarAngle = Math.PI;
         viewer.cameraControls.update();
-      }
-    });
-
-    viewer.camera.up.set(0, 1, 0);
-    viewer.camera.near = 0.01;
-    viewer.camera.far = maxDim * 1000;
-    if (saved.camera) {
-      viewer.camera.position.set(saved.camera.px, saved.camera.py, saved.camera.pz);
-      viewer.cameraControls.target.set(saved.camera.tx, saved.camera.ty, saved.camera.tz);
-    } else {
-      viewer.camera.position.set(-2.0876, -9.8333, 1.9685);
-      viewer.cameraControls.target.set(-1.4539, -9.7561, 1.389);
-    }
-    viewer.camera.updateProjectionMatrix();
-
-    const initTarget = viewer.cameraControls.target;
-    const dx = viewer.camera.position.x - initTarget.x,
-      dy = viewer.camera.position.y - initTarget.y,
-      dz = viewer.camera.position.z - initTarget.z;
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    viewer.cameraControls.minPolarAngle = Math.acos(dy / dist);
-    viewer.cameraControls.maxPolarAngle = Math.PI;
-    viewer.cameraControls.update();
-    loadingEl.remove();
-  },
-  (xhr) => {
-    if (xhr.total > 0)
-      loadingEl.textContent = `로딩 중... ${Math.round((xhr.loaded / xhr.total) * 100)}%`;
-  },
-  (err) => console.error('GLB 로드 실패:', err),
-);
+        loadingEl.remove();
+      },
+      (err) => console.error('GLB 로드 실패:', err),
+    );
+  } catch (err) {
+    console.error('GLB 로드 실패:', err);
+    loadingEl.textContent = 'GLB 로드 실패';
+  }
+})();
 
 // ── 음악 플레이어 (공간음향 HRTF) ─────────────────────────────
 

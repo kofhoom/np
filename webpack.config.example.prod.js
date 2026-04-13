@@ -10,7 +10,7 @@ module.exports = {
   output: {
     filename: 'example.bundle.js',
     path: buildPath,
-    clean: true,
+    clean: { keep: /data\/model\// },
   },
   mode: 'production',
   devtool: false,
@@ -53,7 +53,6 @@ module.exports = {
     new HtmlWebpackPlugin({ title: 'Orthodox Church Viewer' }),
     new CopyWebpackPlugin({
       patterns: [
-        // 음악 파일 전체
         { from: path.resolve(__dirname, 'data/song'), to: 'data/song' },
       ],
     }),
