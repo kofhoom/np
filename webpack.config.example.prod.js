@@ -52,9 +52,7 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({ title: 'Orthodox Church Viewer' }),
     new CopyWebpackPlugin({
-      patterns: [
-        { from: path.resolve(__dirname, 'data/song'), to: 'data/song' },
-      ],
+      patterns: [{ from: path.resolve(__dirname, 'data/song'), to: 'data/song' }],
     }),
   ],
 };
