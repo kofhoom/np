@@ -27,7 +27,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-const DEV_MODE = true;
+const DEV_MODE = false;
 
 function saveSettings(data: any): void {
   const json = JSON.stringify(data, null, 2);
