@@ -55,7 +55,10 @@ module.exports = {
       patterns: [
         // 사용하는 GLB만 명시적으로 복사
         {
-          from: path.resolve(__dirname, 'data/interior-view-of-orthodox-church-of-al-tahira/source/brand new interior/interior_view_of_orthodox_church_of_al-tahira (1).glb'),
+          from: path.resolve(
+            __dirname,
+            'data/interior-view-of-orthodox-church-of-al-tahira/source/brand new interior/interior_view_of_orthodox_church_of_al-tahira (1).glb',
+          ),
           to: 'data/interior-view-of-orthodox-church-of-al-tahira/source/brand new interior/interior_view_of_orthodox_church_of_al-tahira (1).glb',
         },
         // 음악 파일 전체
