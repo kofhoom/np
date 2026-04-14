@@ -1,5 +1,6 @@
 import { Viewer } from './viewer';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
 import { Sky } from 'three/examples/jsm/objects/Sky';
 import {
@@ -14,10 +15,15 @@ import {
   Mesh,
   SphereGeometry,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   SpriteMaterial,
   Sprite,
   CanvasTexture,
   BufferGeometry,
+  Group,
+  PlaneGeometry,
+  VideoTexture,
+  DoubleSide,
 } from 'three';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 
@@ -27,7 +33,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-const DEV_MODE = false;
+const DEV_MODE = true;
 
 function saveSettings(data: any): void {
   const json = JSON.stringify(data, null, 2);
@@ -36,7 +42,6 @@ function saveSettings(data: any): void {
     headers: { 'Content-Type': 'application/json' },
     body: json,
   }).catch(() => {
-    // 로컬 서버 없으면(프로덕션) 파일 다운로드로 폴백
     const blob = new Blob([json], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -244,6 +249,339 @@ const GLB_CHUNKS = [
         viewer.scene.add(model);
         model.updateMatrixWorld(true);
 
+        // ── STL 오브젝트 (Group + Video + Annotation) ─────────────
+        const STL_CONFIG: Array<{ url: string; video: string | null; label: string }> = [
+          // {
+          //   url: 'data/stl/6-abacus-the-ascension.stl',
+          //   video: 'data/video/test_video.mp4',
+          //   label: 'Abacus Ascension',
+          // },
+          {
+            url: 'data/stl/new-palmyra-column-top-1.stl',
+            video:
+              'data/video/AQOSkMQFguVPMGc9kZhEBHz6ISco_0hxXGb72IZkNeJ9LSAlbJomIIiFghzv6lpny857fHu9CVMuSVZDCh_NL2iD05ZhXNphnVEfisZOBA.mp4',
+            label: 'Palmyra Column',
+          },
+          {
+            url: 'data/stl/new-palmyra-column-top-1.stl',
+            video: 'data/video/test_video.mp4',
+            label: 'Palmyra Column',
+          },
+          {
+            url: 'data/stl/new-palmyra-column-top-1.stl',
+            video:
+              'data/video/AQOQGQmWLYL5QQ8X59weGNC4T0bpZx2kU-8mmgiq99XfPTS6B8-jP5rr3QLa08Y3T7ubE8mjaNWWfOWZrU-OszZLcG_pJSPKave2dtb1yQ.mp4',
+            label: 'Palmyra Column',
+          },
+        ];
+        const stlGroups: Group[] = [];
+        const stlLoader = new STLLoader();
+        let selectedStlGroup: Group | null = null;
+
+        const STL_COLORS = { normal: 0xccaa77, hover: 0xffdd88, selected: 0xff8800 };
+
+        // 어노테이션 컨테이너 (캔버스 위에 HTML 레이어)
+        const annotContainer = document.createElement('div');
+        annotContainer.style.cssText =
+          'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;';
+        targetEl.style.position = 'relative';
+        targetEl.appendChild(annotContainer);
+
+        interface AnnotEntry {
+          group: Group;
+          videoPlane: Mesh | null;
+          videoPlaneH: number;
+          labelDiv: HTMLDivElement;
+        }
+        const annotEntries: AnnotEntry[] = [];
+
+        // 카메라 플라이-투 애니메이션 상태
+        let flyAnim: {
+          cs: Vector3;
+          ce: Vector3;
+          ts: Vector3;
+          te: Vector3;
+          t: number;
+        } | null = null;
+
+        function flyToGroup(g: Group): void {
+          const box = new Box3().setFromObject(g);
+          const center = new Vector3();
+          box.getCenter(center);
+          const size = new Vector3();
+          box.getSize(size);
+          const dist = Math.max(size.x, size.y, size.z) * 3 + 0.5;
+          const dir = new Vector3().subVectors(viewer.camera.position, center).normalize();
+          if (dir.lengthSq() < 0.001) dir.set(0, 1, 1).normalize();
+          flyAnim = {
+            cs: viewer.camera.position.clone(),
+            ce: center.clone().addScaledVector(dir, dist),
+            ts: viewer.cameraControls.target.clone(),
+            te: center.clone(),
+            t: 0,
+          };
+        }
+
+        // 어노테이션 + 플라이-투 RAF 루프
+        function annotRafLoop(): void {
+          requestAnimationFrame(annotRafLoop);
+
+          // 플라이-투
+          if (flyAnim) {
+            flyAnim.t = Math.min(1, flyAnim.t + 0.04);
+            const s = 1 - Math.pow(1 - flyAnim.t, 3); // cubic ease-out
+            viewer.camera.position.lerpVectors(flyAnim.cs, flyAnim.ce, s);
+            viewer.cameraControls.target.lerpVectors(flyAnim.ts, flyAnim.te, s);
+            viewer.cameraControls.update();
+            if (flyAnim.t >= 1) flyAnim = null;
+          }
+
+          // 어노테이션 위치 + 비디오 플레인 위치 갱신
+          for (const entry of annotEntries) {
+            const wb = new Box3().setFromObject(entry.group);
+            const cx = (wb.min.x + wb.max.x) * 0.5;
+            const cz = (wb.min.z + wb.max.z) * 0.5;
+
+            if (entry.videoPlane) {
+              // 수직으로 세워서 배치: 모델 상단에 바닥이 닿도록
+              entry.videoPlane.position.set(cx, wb.max.y + entry.videoPlaneH * 0.5, cz);
+              entry.videoPlane.rotation.copy(entry.group.rotation);
+            }
+
+            // 3D → 2D 투영
+            const wp = new Vector3(cx, wb.max.y + 0.3, cz);
+            wp.project(viewer.camera);
+            entry.labelDiv.style.display = wp.z < 1 ? 'block' : 'none';
+            entry.labelDiv.style.left = (wp.x * 0.5 + 0.5) * targetEl.clientWidth + 'px';
+            entry.labelDiv.style.top = (-wp.y * 0.5 + 0.5) * targetEl.clientHeight + 'px';
+          }
+        }
+        requestAnimationFrame(annotRafLoop);
+
+        STL_CONFIG.forEach((cfg, idx) => {
+          stlLoader.load(cfg.url, (geometry) => {
+            geometry.computeVertexNormals();
+            const mat = new MeshStandardMaterial({
+              color: STL_COLORS.normal,
+              roughness: 0.6,
+              metalness: 0.2,
+            });
+            const stlMesh = new Mesh(geometry, mat);
+            stlMesh.name = `stl_mesh_${idx}`;
+            // Z-up → Y-up 보정은 항상 메시에 고정 (-PI/2).
+            // 저장값 rx = group.rx + mesh.rx, 즉 load 시 group.rx = savedRx + PI/2
+            stlMesh.rotation.x = -Math.PI / 2;
+
+            const group = new Group();
+            group.name = `stl_${idx}`;
+            group.add(stlMesh);
+
+            const savedStl = saved.stl?.[idx];
+            if (savedStl) {
+              group.position.set(savedStl.px, savedStl.py, savedStl.pz);
+              // savedStl.rx 에는 mesh.rx(-PI/2)가 합산돼 있으므로 빼준다
+              group.rotation.set(savedStl.rx + Math.PI / 2, savedStl.ry, savedStl.rz);
+              group.scale.set(savedStl.sx, savedStl.sy, savedStl.sz);
+            } else {
+              // 자동 스케일: glTF 대비 적당한 크기로
+              const gltfBox = new Box3().setFromObject(model);
+              const gltfSize = new Vector3();
+              gltfBox.getSize(gltfSize);
+              const stlBox = new Box3().setFromObject(stlMesh);
+              const stlSize = new Vector3();
+              stlBox.getSize(stlSize);
+              const targetSize = Math.max(gltfSize.x, gltfSize.y, gltfSize.z) * 0.01;
+              const currentMax = Math.max(stlSize.x, stlSize.y, stlSize.z);
+              if (currentMax > 0) group.scale.setScalar(targetSize / currentMax);
+
+              // 카메라 앞쪽에 배치
+              const cam = viewer.camera;
+              const forward = new Vector3();
+              cam.getWorldDirection(forward);
+              const spread = (idx - (STL_CONFIG.length - 1) / 2) * targetSize * 1.5;
+              const right = new Vector3().crossVectors(forward, cam.up).normalize();
+              group.position
+                .copy(cam.position)
+                .addScaledVector(forward, targetSize * 3)
+                .addScaledVector(right, spread);
+            }
+
+            viewer.scene.add(group);
+            group.updateMatrixWorld(true);
+            stlGroups.push(group);
+
+            // 비디오 플레인 (씬에 직접 추가, RAF에서 위치 추적)
+            let videoPlane: Mesh | null = null;
+            let videoPlaneH = 0;
+            if (cfg.video) {
+              const wb = new Box3().setFromObject(group);
+              const w = wb.max.x - wb.min.x;
+              const d = wb.max.z - wb.min.z;
+              const planeW = Math.max(w, d) * 5.0;
+              videoPlaneH = planeW * (9 / 16);
+              const vid = document.createElement('video');
+              vid.src = cfg.video;
+              vid.loop = true;
+              vid.muted = true;
+              vid.playsInline = true;
+              // DOM에 추가해야 일부 브라우저에서 autoplay 허용됨
+              vid.setAttribute('playsinline', '');
+              vid.style.cssText =
+                'position:fixed;top:-9999px;left:-9999px;width:320px;height:180px;pointer-events:none;visibility:hidden;';
+              document.body.appendChild(vid);
+              vid.load();
+              vid.play().catch(() => {});
+              const vTex = new VideoTexture(vid);
+              vTex.colorSpace = SRGBColorSpace;
+              videoPlane = new Mesh(
+                new PlaneGeometry(planeW, planeW * (9 / 16)),
+                new MeshBasicMaterial({ map: vTex, side: DoubleSide }),
+              );
+              videoPlane.name = `video_plane_${idx}`;
+              viewer.scene.add(videoPlane);
+            }
+
+            // 어노테이션 라벨
+            const labelDiv = document.createElement('div');
+            labelDiv.textContent = cfg.label;
+            labelDiv.style.cssText =
+              'position:absolute;transform:translate(-50%,-100%);' +
+              'background:rgba(0,0,0,0.7);color:#fff;padding:4px 10px;border-radius:12px;' +
+              'font-size:12px;white-space:nowrap;cursor:pointer;pointer-events:auto;' +
+              'border:1px solid rgba(255,255,255,0.3);';
+            labelDiv.addEventListener('click', () => flyToGroup(group));
+            annotContainer.appendChild(labelDiv);
+
+            annotEntries.push({ group, videoPlane, videoPlaneH, labelDiv });
+          });
+        });
+
+        // STL TransformControls
+        sep('STL 오브젝트');
+        const stlTC = new TransformControls(viewer.camera, viewer.renderer.domElement);
+        let stlTCJustDragged = false;
+        stlTC.addEventListener('dragging-changed', (e: any) => {
+          viewer.cameraControls.enabled = !e.value;
+          if (!e.value) {
+            stlTCJustDragged = true;
+            setTimeout(() => {
+              stlTCJustDragged = false;
+            }, 150);
+          }
+        });
+        viewer.scene.add(stlTC);
+
+        const stlBtnRow = document.createElement('div');
+        stlBtnRow.style.cssText = 'display:flex;gap:6px;margin:4px 0;';
+        (['이동', '회전', '크기', '해제'] as const).forEach((txt, i) => {
+          const btn = document.createElement('button');
+          btn.textContent = txt;
+          btn.style.cssText = `flex:1;background:${i === 0 ? '#aa5522' : '#444'};color:#fff;border:none;padding:4px;border-radius:4px;cursor:pointer;font-size:10px;`;
+          btn.addEventListener('click', () => {
+            if (i === 3) {
+              stlTC.detach();
+              selectedStlGroup = null;
+              stlGroups.forEach((g) => {
+                const m = g.children.find(
+                  (c) => c instanceof Mesh && c.name.startsWith('stl_mesh_'),
+                ) as Mesh | undefined;
+                if (m) (m.material as MeshStandardMaterial).color.setHex(STL_COLORS.normal);
+              });
+            } else {
+              stlTC.setMode(['translate', 'rotate', 'scale'][i] as any);
+            }
+            stlBtnRow.querySelectorAll('button').forEach((b, j) => {
+              (b as HTMLElement).style.background = j === i ? '#aa5522' : '#444';
+            });
+          });
+          stlBtnRow.appendChild(btn);
+        });
+        panel.appendChild(stlBtnRow);
+
+        // 바닥 스냅 버튼
+        const snapBtn = document.createElement('button');
+        snapBtn.textContent = '⬇ 바닥에 내려놓기';
+        snapBtn.style.cssText =
+          'width:100%;background:#336644;color:#fff;border:none;padding:5px;border-radius:4px;cursor:pointer;font-size:10px;margin:3px 0;';
+        snapBtn.addEventListener('click', () => {
+          if (!selectedStlGroup) return;
+          const rc = new Raycaster();
+          const origin = selectedStlGroup.getWorldPosition(new Vector3());
+          rc.set(origin, new Vector3(0, -1, 0));
+          const hits = rc.intersectObject(model, true);
+          const floorHit = hits.find((h) => h.point.y < origin.y - 0.01);
+          if (floorHit) {
+            const wb = new Box3().setFromObject(selectedStlGroup);
+            const bottomOffset = wb.min.y - origin.y;
+            selectedStlGroup.position.y = floorHit.point.y - bottomOffset;
+          } else {
+            snapBtn.textContent = '⬇ 바닥을 못 찾음';
+            setTimeout(() => {
+              snapBtn.textContent = '⬇ 바닥에 내려놓기';
+            }, 1500);
+          }
+        });
+        panel.appendChild(snapBtn);
+
+        // STL 클릭 선택 (Group 기반)
+        targetEl.addEventListener('click', (e) => {
+          if ((e as MouseEvent).detail > 1) return;
+          if (stlTCJustDragged) return;
+          const me = e as MouseEvent;
+          const mouse = new Vector2(
+            (me.clientX / window.innerWidth) * 2 - 1,
+            -(me.clientY / window.innerHeight) * 2 + 1,
+          );
+          const rc = new Raycaster();
+          rc.setFromCamera(mouse, viewer.camera);
+
+          const stlMeshList = stlGroups
+            .map(
+              (g) =>
+                g.children.find((c) => c instanceof Mesh && c.name.startsWith('stl_mesh_')) as
+                  | Mesh
+                  | undefined,
+            )
+            .filter((m): m is Mesh => !!m);
+
+          const hits = rc.intersectObjects(stlMeshList, false);
+          if (hits.length > 0) {
+            const hitMesh = hits[0].object as Mesh;
+            const hitGroup = hitMesh.parent as Group;
+            if (selectedStlGroup && selectedStlGroup !== hitGroup) {
+              const prevMesh = selectedStlGroup.children.find((c) => c instanceof Mesh) as
+                | Mesh
+                | undefined;
+              if (prevMesh)
+                (prevMesh.material as MeshStandardMaterial).color.setHex(STL_COLORS.normal);
+            }
+            selectedStlGroup = hitGroup;
+            (hitMesh.material as MeshStandardMaterial).color.setHex(STL_COLORS.selected);
+            stlTC.attach(hitGroup);
+          }
+        });
+
+        // hover 효과
+        targetEl.addEventListener('pointermove', (e) => {
+          const me = e as PointerEvent;
+          const mouse = new Vector2(
+            (me.clientX / window.innerWidth) * 2 - 1,
+            -(me.clientY / window.innerHeight) * 2 + 1,
+          );
+          const rc = new Raycaster();
+          rc.setFromCamera(mouse, viewer.camera);
+          stlGroups.forEach((g) => {
+            const m = g.children.find(
+              (c) => c instanceof Mesh && c.name.startsWith('stl_mesh_'),
+            ) as Mesh | undefined;
+            if (!m || g === selectedStlGroup) return;
+            const hits = rc.intersectObject(m, false);
+            (m.material as MeshStandardMaterial).color.setHex(
+              hits.length > 0 ? STL_COLORS.hover : STL_COLORS.normal,
+            );
+          });
+        });
+
         const box = new Box3().setFromObject(model);
         const center = new Vector3();
         box.getCenter(center);
@@ -337,6 +675,22 @@ const GLB_CHUNKS = [
               z: em.z,
               params: { ...em.params },
             })),
+            stl: STL_CONFIG.map((_, i) => {
+              const g = stlGroups.find((grp) => grp.name === `stl_${i}`);
+              if (!g) return null;
+              return {
+                px: g.position.x,
+                py: g.position.y,
+                pz: g.position.z,
+                // mesh.rx(-PI/2)를 합산해서 저장 → 다음 로드 시 + PI/2로 상쇄
+                rx: g.rotation.x - Math.PI / 2,
+                ry: g.rotation.y,
+                rz: g.rotation.z,
+                sx: g.scale.x,
+                sy: g.scale.y,
+                sz: g.scale.z,
+              };
+            }),
           });
           saveBtn.textContent = '✅ 저장됨';
           setTimeout(() => {
@@ -359,8 +713,10 @@ const GLB_CHUNKS = [
               dy2 = viewer.camera.position.y - p.y,
               dz2 = viewer.camera.position.z - p.z;
             const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
-            viewer.cameraControls.minPolarAngle = Math.acos(dy2 / dist2);
-            viewer.cameraControls.maxPolarAngle = Math.PI;
+            if (!DEV_MODE) {
+              viewer.cameraControls.minPolarAngle = Math.acos(dy2 / dist2);
+              viewer.cameraControls.maxPolarAngle = Math.PI;
+            }
             viewer.cameraControls.update();
           }
         });
@@ -382,8 +738,10 @@ const GLB_CHUNKS = [
           dy = viewer.camera.position.y - initTarget.y,
           dz = viewer.camera.position.z - initTarget.z;
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        viewer.cameraControls.minPolarAngle = Math.acos(dy / dist);
-        viewer.cameraControls.maxPolarAngle = Math.PI;
+        if (!DEV_MODE) {
+          viewer.cameraControls.minPolarAngle = Math.acos(dy / dist);
+          viewer.cameraControls.maxPolarAngle = Math.PI;
+        }
         viewer.cameraControls.update();
         loadingEl.remove();
       },
