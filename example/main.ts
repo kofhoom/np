@@ -24,8 +24,8 @@ import {
   PlaneGeometry,
   VideoTexture,
   DoubleSide,
-  PMREMGenerator,
-  Scene,
+  Plane,
+  AdditiveBlending,
 } from 'three';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 
@@ -35,7 +35,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-const DEV_MODE = true;
+const DEV_MODE = false;
 
 function saveSettings(data: any): void {
   const json = JSON.stringify(data, null, 2);
@@ -64,9 +64,24 @@ fetch('data/settings.json')
   .catch(() => {});
 
 const loadingEl = document.createElement('div');
-loadingEl.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:#000;color:#fff;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-size:20px;z-index:999;`;
-loadingEl.textContent = '로딩 중...';
+loadingEl.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;z-index:999;gap:16px;`;
+loadingEl.innerHTML = `
+  <div id="loading-text" style="font-size:34px;letter-spacing:2px;opacity:0.85;">Loading...</div>
+  <div style="width:494px;height:8px;background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;">
+    <div id="loading-bar" style="height:100%;width:0%;background:#fff;border-radius:4px;transition:width 0.2s ease;"></div>
+  </div>
+  <div id="loading-pct" style="font-size:25px;opacity:0.5;">0%</div>
+`;
 document.body.appendChild(loadingEl);
+
+function setLoadingProgress(pct: number, label?: string): void {
+  const bar = document.getElementById('loading-bar');
+  const pctEl = document.getElementById('loading-pct');
+  const textEl = document.getElementById('loading-text');
+  if (bar) bar.style.width = `${pct}%`;
+  if (pctEl) pctEl.textContent = `${Math.round(pct)}%`;
+  if (label && textEl) textEl.textContent = label;
+}
 
 const targetEl = document.createElement('div');
 targetEl.className = 'container';
@@ -84,6 +99,42 @@ viewer.scene.add(sunLight.target);
 const sunAzimuth = saved.sunAzimuth ?? 315;
 const sunElevation = saved.sunElevation ?? 19.675;
 
+// ── 렌즈플레어 (Sprite 기반, 오클루전 없음) ──────────────────
+function makeFlareTex(size: number, r: number, g: number, b: number, sharp = false): CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d')!;
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, 0, half, half, half);
+  grad.addColorStop(0, `rgba(${r},${g},${b},1)`);
+  grad.addColorStop(sharp ? 0.06 : 0.18, `rgba(${r},${g},${b},0.75)`);
+  grad.addColorStop(sharp ? 0.22 : 0.5, `rgba(${r},${g},${b},0.12)`);
+  grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new CanvasTexture(c);
+}
+
+function makeFlareSprite(r: number, g: number, b: number, sharp = false) {
+  const mat = new SpriteMaterial({
+    map: makeFlareTex(256, r, g, b, sharp),
+    depthTest: false,
+    transparent: true,
+    blending: AdditiveBlending,
+  });
+  const sprite = new Sprite(mat);
+  sprite.renderOrder = 999;
+  viewer.scene.add(sprite);
+  return { mat, sprite };
+}
+
+// 메인 글로우 + 화면공간 보조 플레어 3개
+const sunGlow = makeFlareSprite(255, 240, 180); // 따뜻한 노란 글로우
+const flare1 = makeFlareSprite(180, 220, 255, true); // 쿨 블루
+const flare2 = makeFlareSprite(210, 170, 255, true); // 퍼플
+const flare3 = makeFlareSprite(255, 200, 130, true); // 앰버
+const { mat: sunGlowMat, sprite: sunGlowSprite } = sunGlow;
+
 function updateSun(azDeg: number, elDeg: number): void {
   if (!sky) return;
   const phi = (90 - elDeg) * (Math.PI / 180);
@@ -94,18 +145,6 @@ function updateSun(azDeg: number, elDeg: number): void {
   sky.material.uniforms['sunPosition'].value.set(x, y, z);
   sunLight.position.set(x * 500, y * 500, z * 500);
   sunLight.target.updateMatrixWorld();
-
-  // Sky → envMap 생성해서 STL 등 MeshStandardMaterial에 환경광 반영
-  const pmrem = new PMREMGenerator(viewer.renderer);
-  pmrem.compileCubemapShader();
-  viewer.scene.remove(sky);
-  const tmpScene = new Scene();
-  tmpScene.add(sky);
-  const envMap = pmrem.fromScene(tmpScene).texture;
-  tmpScene.remove(sky);
-  viewer.scene.add(sky);
-  viewer.scene.environment = envMap;
-  pmrem.dispose();
 }
 
 viewer.initialize(targetEl, DEV_MODE).then(() => {
@@ -165,9 +204,42 @@ panel.appendChild(topRow);
 hideBtn.addEventListener('click', () => {
   panel.style.display = 'none';
 });
+// ── 근접 클리핑 (카메라 앞 geometry 제거) ─────────────────────
+const proximityPlane = new Plane(new Vector3(0, 0, -1), 0);
+let proximityClipEnabled = false;
+let proximityClipDist = 1.5;
+
+function setProximityClip(on: boolean): void {
+  proximityClipEnabled = on;
+  viewer.renderer.clippingPlanes = on ? [proximityPlane] : [];
+}
+
+let xrayMode = false;
+function setXray(on: boolean): void {
+  xrayMode = on;
+  if (!currentModel) return;
+  currentModel.traverse((obj: any) => {
+    if (!obj.isMesh) return;
+    const mat = obj.material;
+    if (Array.isArray(mat)) {
+      mat.forEach((m: any) => {
+        m.transparent = on;
+        m.opacity = on ? 0.25 : 1.0;
+        m.depthWrite = !on;
+      });
+    } else {
+      mat.transparent = on;
+      mat.opacity = on ? 0.25 : 1.0;
+      mat.depthWrite = !on;
+    }
+  });
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.key === 'h' || e.key === 'H')
     panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  if (e.key === 'x' || e.key === 'X') setXray(!xrayMode);
+  if (e.key === 'c' || e.key === 'C') setProximityClip(!proximityClipEnabled);
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
     saveBtn.click();
@@ -227,12 +299,38 @@ const GLB_CHUNKS = [
 
 (async () => {
   try {
-    loadingEl.textContent = '모델 로딩 중...';
+    setLoadingProgress(0, 'Loading...');
+    const chunkLoaded = new Array(GLB_CHUNKS.length).fill(0);
+    const chunkTotal = new Array(GLB_CHUNKS.length).fill(0);
+
     const buffers = await Promise.all(
       GLB_CHUNKS.map(async (url, i) => {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`chunk ${i} failed: ${res.status}`);
-        return res.arrayBuffer();
+        const contentLength = Number(res.headers.get('Content-Length') ?? 0);
+        chunkTotal[i] = contentLength;
+
+        const reader = res.body!.getReader();
+        const parts: Uint8Array[] = [];
+        let loaded = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          parts.push(value);
+          loaded += value.byteLength;
+          chunkLoaded[i] = loaded;
+          const totalLoaded = chunkLoaded.reduce((a, b) => a + b, 0);
+          const totalSize = chunkTotal.reduce((a, b) => a + b, 0);
+          const pct = totalSize > 0 ? (totalLoaded / totalSize) * 100 : 0;
+          setLoadingProgress(pct, 'Loading...');
+        }
+        const buf = new Uint8Array(loaded);
+        let off = 0;
+        for (const p of parts) {
+          buf.set(p, off);
+          off += p.byteLength;
+        }
+        return buf.buffer;
       }),
     );
     const total = buffers.reduce((s, b) => s + b.byteLength, 0);
@@ -281,20 +379,20 @@ const GLB_CHUNKS = [
             video:
               'data/video/AQOSkMQFguVPMGc9kZhEBHz6ISco_0hxXGb72IZkNeJ9LSAlbJomIIiFghzv6lpny857fHu9CVMuSVZDCh_NL2iD05ZhXNphnVEfisZOBA.mp4',
             label: 'AQOSkMQFguVPMGc9kZhEBHz6ISco',
-            videoScale: 5.0,
+            videoScale: 3.0,
           },
           {
             url: 'data/stl/new-palmyra-column-top-1.stl',
             video:
               'data/video/AQOQGQmWLYL5QQ8X59weGNC4T0bpZx2kU-8mmgiq99XfPTS6B8-jP5rr3QLa08Y3T7ubE8mjaNWWfOWZrU-OszZLcG_pJSPKave2dtb1yQ.mp4',
             label: 'test_video',
-            videoScale: 3.0,
+            videoScale: 2.0,
           },
           {
             url: 'data/stl/new-palmyra-column-top-1.stl',
             video: 'data/video/test_video.mp4',
             label: 'AQOQGQmWLYL5QQ8X59weGNC4T0bpZx2kU',
-            videoScale: 3.0,
+            videoScale: 2.0,
           },
         ];
         const stlGroups: Group[] = [];
@@ -318,6 +416,60 @@ const GLB_CHUNKS = [
         }
         const annotEntries: AnnotEntry[] = [];
 
+        // ── 관람 UI (캔슬 + 위치 저장) ───────────────────────────
+        const viewingBar = document.createElement('div');
+        viewingBar.style.cssText = `
+          display:none;position:fixed;top:27px;left:27px;z-index:200;
+          display:none;gap:15px;align-items:center;
+        `;
+        document.body.appendChild(viewingBar);
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Back';
+        cancelBtn.style.cssText = `
+          background:rgba(0,0,0,0.65);color:#fff;border:1px solid rgba(255,255,255,0.3);
+          padding:13px 30px;border-radius:38px;cursor:pointer;font-size:25px;
+          backdrop-filter:blur(4px);transition:background 0.2s;
+        `;
+        cancelBtn.onmouseenter = () => (cancelBtn.style.background = 'rgba(60,60,60,0.85)');
+        cancelBtn.onmouseleave = () => (cancelBtn.style.background = 'rgba(0,0,0,0.65)');
+
+        const saveViewBtn = document.createElement('button');
+        saveViewBtn.textContent = '📍 이 위치 저장';
+        saveViewBtn.style.cssText = `
+          background:rgba(0,80,200,0.7);color:#fff;border:1px solid rgba(100,160,255,0.4);
+          padding:13px 30px;border-radius:38px;cursor:pointer;font-size:25px;
+          backdrop-filter:blur(4px);transition:background 0.2s; display: none;
+        `;
+        saveViewBtn.onmouseenter = () => (saveViewBtn.style.background = 'rgba(0,100,240,0.9)');
+        saveViewBtn.onmouseleave = () => (saveViewBtn.style.background = 'rgba(0,80,200,0.7)');
+        saveViewBtn.addEventListener('click', () => {
+          if (currentViewGroupIdx === null) return;
+          const views = [...(saved.groupViews ?? Array(STL_CONFIG.length).fill(null))];
+          views[currentViewGroupIdx] = {
+            px: viewer.camera.position.x,
+            py: viewer.camera.position.y,
+            pz: viewer.camera.position.z,
+            tx: viewer.cameraControls.target.x,
+            ty: viewer.cameraControls.target.y,
+            tz: viewer.cameraControls.target.z,
+          };
+          saved.groupViews = views;
+          saveSettings({ ...saved, groupViews: views });
+          saveViewBtn.textContent = '✅ 저장됨';
+          setTimeout(() => (saveViewBtn.textContent = '📍 이 위치 저장'), 1500);
+        });
+
+        viewingBar.appendChild(saveViewBtn);
+        viewingBar.appendChild(cancelBtn);
+
+        // 원위치 저장 (non-DEV는 항상 하드코딩 기본값)
+        const HOME_POS = new Vector3(-2.0876, -9.8333, 1.9685);
+        const HOME_TARGET = new Vector3(-1.4539, -9.7561, 1.389);
+        let homePos = HOME_POS.clone();
+        let homeTarget = HOME_TARGET.clone();
+        let currentViewGroupIdx: number | null = null;
+
         // 카메라 플라이-투 애니메이션 상태
         let flyAnim: {
           cs: Vector3;
@@ -325,17 +477,56 @@ const GLB_CHUNKS = [
           ts: Vector3;
           te: Vector3;
           t: number;
+          onDone?: () => void;
         } | null = null;
 
         function flyToGroup(g: Group): void {
+          // 그룹 인덱스 추적
+          const idx = parseInt(g.name.replace('stl_', ''), 10);
+          currentViewGroupIdx = isNaN(idx) ? null : idx;
+
+          // 원위치 저장
+          if (!DEV_MODE) {
+            homePos = HOME_POS.clone();
+            homeTarget = HOME_TARGET.clone();
+          } else {
+            homePos = viewer.camera.position.clone();
+            homeTarget = viewer.cameraControls.target.clone();
+          }
+
+          viewingBar.style.display = 'flex';
+          viewer.cameraControls.enabled = false;
+
+          // 저장된 그룹 뷰 위치가 있으면 그리로 이동
+          const savedView = saved.groupViews?.[idx];
+          if (savedView) {
+            flyAnim = {
+              cs: viewer.camera.position.clone(),
+              ce: new Vector3(savedView.px, savedView.py, savedView.pz),
+              ts: viewer.cameraControls.target.clone(),
+              te: new Vector3(savedView.tx, savedView.ty, savedView.tz),
+              t: 0,
+            };
+            return;
+          }
+
+          // 저장된 위치 없으면 FOV 기반 자동 계산
           const box = new Box3().setFromObject(g);
+          const entry = annotEntries.find((en) => en.group === g);
+          if (entry?.videoPlane) {
+            box.union(new Box3().setFromObject(entry.videoPlane));
+          }
           const center = new Vector3();
           box.getCenter(center);
           const size = new Vector3();
           box.getSize(size);
-          const dist = Math.max(size.x, size.y, size.z) * 3 + 0.5;
+          const vFov = (viewer.camera.fov * Math.PI) / 180;
+          const hFov = 2 * Math.atan(Math.tan(vFov / 2) * viewer.camera.aspect);
+          const groupSize = Math.max(size.x, size.y, size.z);
+          const dist = (groupSize / 2 / Math.tan(Math.min(vFov, hFov) / 2)) * 1.3;
           const dir = new Vector3().subVectors(viewer.camera.position, center).normalize();
-          if (dir.lengthSq() < 0.001) dir.set(0, 1, 1).normalize();
+          if (dir.lengthSq() < 0.001) dir.set(0, 0, 1).normalize();
+
           flyAnim = {
             cs: viewer.camera.position.clone(),
             ce: center.clone().addScaledVector(dir, dist),
@@ -345,18 +536,116 @@ const GLB_CHUNKS = [
           };
         }
 
+        function flyHome(): void {
+          viewingBar.style.display = 'none';
+          viewer.cameraControls.enabled = false;
+          flyAnim = {
+            cs: viewer.camera.position.clone(),
+            ce: homePos.clone(),
+            ts: viewer.cameraControls.target.clone(),
+            te: homeTarget.clone(),
+            t: 0,
+            onDone: () => {
+              viewer.cameraControls.enabled = true;
+              if (!DEV_MODE) {
+                // 원위치 복귀 후 polar 제한 복원
+                const dx = homePos.x - homeTarget.x;
+                const dy = homePos.y - homeTarget.y;
+                const dz = homePos.z - homeTarget.z;
+                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                viewer.cameraControls.minPolarAngle = Math.acos(dy / dist);
+                viewer.cameraControls.maxPolarAngle = Math.PI;
+              }
+            },
+          };
+          // 이동 중 polar 제한 해제
+          if (!DEV_MODE) {
+            viewer.cameraControls.minPolarAngle = 0;
+            viewer.cameraControls.maxPolarAngle = Math.PI;
+          }
+        }
+
+        cancelBtn.addEventListener('click', flyHome);
+
         // 어노테이션 + 플라이-투 RAF 루프
         function annotRafLoop(): void {
           requestAnimationFrame(annotRafLoop);
 
+          // ── 렌즈플레어 스프라이트 업데이트 ──────────────────────
+          {
+            const t = performance.now() * 0.001;
+            const shimmer =
+              Math.sin(t * 0.13) * 0.045 +
+              Math.sin(t * 0.31) * 0.032 +
+              Math.sin(t * 0.57) * 0.022 +
+              Math.sin(t * 0.89) * 0.016 +
+              Math.sin(t * 1.37) * 0.011 +
+              Math.sin(t * 2.11) * 0.007 +
+              Math.sin(t * 3.73) * 0.004;
+
+            const DIST = 150;
+            const sunDir = new Vector3().copy(sunLight.position).normalize();
+            const camFwd = new Vector3();
+            viewer.camera.getWorldDirection(camFwd);
+            const dot = Math.max(0, camFwd.dot(sunDir));
+            const vis = Math.pow(dot, 1.8);
+
+            // 메인 글로우 – 태양 방향으로 고정 거리
+            sunGlowSprite.position.copy(viewer.camera.position).addScaledVector(sunDir, DIST);
+            sunGlowSprite.scale.setScalar(DIST * 1.1 * curFlareScale * (1 + shimmer));
+            sunGlowMat.opacity = vis * 0.92;
+
+            // 화면공간 보조 플레어: 태양 NDC → 화면중심(0,0) 방향으로 배치
+            const sunNDC = new Vector3()
+              .copy(viewer.camera.position)
+              .addScaledVector(sunDir, DIST)
+              .project(viewer.camera); // [-1,1]
+
+            const artifacts: Array<{
+              mat: SpriteMaterial;
+              sprite: Sprite;
+              t: number;
+              scale: number;
+              op: number;
+            }> = [
+              { ...flare1, t: 0.3, scale: 0.38, op: 0.75 },
+              { ...flare2, t: 0.56, scale: 0.22, op: 0.55 },
+              { ...flare3, t: 0.8, scale: 0.16, op: 0.45 },
+            ];
+
+            for (const a of artifacts) {
+              // NDC상에서 태양→중심 방향으로 t 비율 위치
+              const ax = sunNDC.x * (1 - a.t);
+              const ay = sunNDC.y * (1 - a.t);
+              // 화면공간 좌표를 카메라 앞 DIST 거리의 월드 포지션으로 변환
+              const ndcPt = new Vector3(ax, ay, 0.1).unproject(viewer.camera);
+              const dir = ndcPt.sub(viewer.camera.position).normalize();
+              a.sprite.position.copy(viewer.camera.position).addScaledVector(dir, DIST);
+              a.sprite.scale.setScalar(DIST * a.scale * curFlareScale * (1 + shimmer * 0.4));
+              a.mat.opacity = vis * a.op;
+            }
+          }
+
+          // 근접 클리핑 플레인 매 프레임 업데이트
+          if (proximityClipEnabled) {
+            const forward = new Vector3();
+            viewer.camera.getWorldDirection(forward);
+            proximityPlane.normal.copy(forward);
+            proximityPlane.constant = -(viewer.camera.position.dot(forward) + proximityClipDist);
+          }
+
           // 플라이-투
           if (flyAnim) {
-            flyAnim.t = Math.min(1, flyAnim.t + 0.04);
+            flyAnim.t = Math.min(1, flyAnim.t + 0.025);
             const s = 1 - Math.pow(1 - flyAnim.t, 3); // cubic ease-out
             viewer.camera.position.lerpVectors(flyAnim.cs, flyAnim.ce, s);
             viewer.cameraControls.target.lerpVectors(flyAnim.ts, flyAnim.te, s);
             viewer.cameraControls.update();
-            if (flyAnim.t >= 1) flyAnim = null;
+            if (flyAnim.t >= 1) {
+              const cb = flyAnim.onDone;
+              flyAnim = null;
+              cb?.();
+            }
           }
 
           // 어노테이션 위치 + 비디오 플레인 위치 갱신
@@ -374,7 +663,7 @@ const GLB_CHUNKS = [
             // 3D → 2D 투영
             const wp = new Vector3(cx, wb.max.y + 0.3, cz);
             wp.project(viewer.camera);
-            entry.labelDiv.style.display = wp.z < 1 ? 'block' : 'none';
+            entry.labelDiv.style.display = 'none';
             entry.labelDiv.style.left = (wp.x * 0.5 + 0.5) * targetEl.clientWidth + 'px';
             entry.labelDiv.style.top = (-wp.y * 0.5 + 0.5) * targetEl.clientHeight + 'px';
           }
@@ -471,7 +760,7 @@ const GLB_CHUNKS = [
               'position:absolute;transform:translate(-50%,-100%);' +
               'background:rgba(0,0,0,0.7);color:#fff;padding:4px 10px;border-radius:12px;' +
               'font-size:12px;white-space:nowrap;cursor:pointer;pointer-events:auto;' +
-              'border:1px solid rgba(255,255,255,0.3);';
+              'border:1px solid rgba(255,255,255,0.3);display:none;';
             labelDiv.addEventListener('click', () => flyToGroup(group));
             annotContainer.appendChild(labelDiv);
 
@@ -580,6 +869,13 @@ const GLB_CHUNKS = [
             }
             selectedStlGroup = hitGroup;
             (hitMesh.material as MeshStandardMaterial).color.setHex(STL_COLORS.selected);
+            if (!DEV_MODE) {
+              // non-DEV: polar 제한 해제 후 플라이-투
+              viewer.cameraControls.minPolarAngle = 0;
+              viewer.cameraControls.maxPolarAngle = Math.PI;
+              flyToGroup(hitGroup);
+              return;
+            }
             stlTC.attach(hitGroup);
           }
         });
@@ -660,8 +956,16 @@ const GLB_CHUNKS = [
           curEl = v;
           updateSun(curAz, curEl);
         });
-        makeSlider('태양 빛 강도', 0, 10, saved.sunLightIntensity ?? 3.15, (v) => {
-          sunLight.intensity = v;
+        let curSunIntensity = saved.sunLightIntensity ?? 3.15;
+        makeSlider('태양 빛 강도', 0, 10, curSunIntensity, (v) => {
+          curSunIntensity = v;
+        });
+        makeSlider('근접 클리핑 거리', 0.1, 20, proximityClipDist, (v) => {
+          proximityClipDist = v;
+        });
+        let curFlareScale = saved.flareScale ?? 1;
+        makeSlider('렌즈플레어 강도', 0, 2, curFlareScale, (v) => {
+          curFlareScale = v;
         });
 
         saveBtn.addEventListener('click', () => {
@@ -691,6 +995,7 @@ const GLB_CHUNKS = [
             sunAzimuth: curAz,
             sunElevation: curEl,
             sunLightIntensity: sunLight.intensity,
+            flareScale: curFlareScale,
             emitters: emitters.map((em) => ({
               name: em.name,
               x: em.x,
@@ -698,6 +1003,20 @@ const GLB_CHUNKS = [
               z: em.z,
               params: { ...em.params },
             })),
+            groupViews: (() => {
+              const views = [...(saved.groupViews ?? Array(STL_CONFIG.length).fill(null))];
+              if (currentViewGroupIdx !== null) {
+                views[currentViewGroupIdx] = {
+                  px: viewer.camera.position.x,
+                  py: viewer.camera.position.y,
+                  pz: viewer.camera.position.z,
+                  tx: viewer.cameraControls.target.x,
+                  ty: viewer.cameraControls.target.y,
+                  tz: viewer.cameraControls.target.z,
+                };
+              }
+              return views;
+            })(),
             stl: STL_CONFIG.map((_, i) => {
               const g = stlGroups.find((grp) => grp.name === `stl_${i}`);
               if (!g) return null;
@@ -736,7 +1055,7 @@ const GLB_CHUNKS = [
               dy2 = viewer.camera.position.y - p.y,
               dz2 = viewer.camera.position.z - p.z;
             const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
-            if (!DEV_MODE) {
+            if (!DEV_MODE && viewingBar.style.display === 'none') {
               viewer.cameraControls.minPolarAngle = Math.acos(dy2 / dist2);
               viewer.cameraControls.maxPolarAngle = Math.PI;
             }
@@ -1076,6 +1395,9 @@ function applySettingsToScene(s: any): void {
   if (s.ambientIntensity !== undefined) ambient.intensity = s.ambientIntensity;
   if (s.exposure !== undefined) viewer.renderer.toneMappingExposure = s.exposure;
   if (s.sunLightIntensity !== undefined) sunLight.intensity = s.sunLightIntensity;
+  if (s.flareScale !== undefined) {
+    sunGlowMat.opacity = s.flareScale > 0 ? 0.92 : 0;
+  }
   if (s.sunAzimuth !== undefined || s.sunElevation !== undefined)
     updateSun(s.sunAzimuth ?? 315, s.sunElevation ?? 19.675);
   if (s.model && currentModel) {
@@ -1159,6 +1481,8 @@ function createEmitter(
   );
   marker.position.set(x, y, z);
   markerSphere.position.set(x, y, z);
+  marker.visible = DEV_MODE;
+  markerSphere.visible = DEV_MODE;
   viewer.scene.add(marker);
   viewer.scene.add(markerSphere);
   return {
@@ -1215,11 +1539,11 @@ function createEmitter(
 
 // ── 플레이어 UI ───────────────────────────────────────────────
 const playerWrap = document.createElement('div');
-playerWrap.style.cssText = `position:fixed;top:14px;right:14px;font-family:sans-serif;font-size:12px;color:#eee;display:flex;flex-direction:column;align-items:flex-end;gap:6px;z-index:200;user-select:none;`;
+playerWrap.style.cssText = `position:fixed;top:27px;right:27px;font-family:sans-serif;font-size:23px;color:#eee;display:flex;flex-direction:column;align-items:flex-end;gap:11px;z-index:200;user-select:none;`;
 document.body.appendChild(playerWrap);
 
 const playerEl = document.createElement('div');
-playerEl.style.cssText = `display:flex;align-items:center;gap:8px;background:rgba(0,0,0,0.55);padding:7px 12px;border-radius:20px;backdrop-filter:blur(4px);`;
+playerEl.style.cssText = `display:flex;align-items:center;gap:15px;background:rgba(0,0,0,0.55);padding:13px 23px;border-radius:38px;backdrop-filter:blur(4px);`;
 playerWrap.appendChild(playerEl);
 
 const prevBtn = document.createElement('span');
@@ -1229,7 +1553,7 @@ prevBtn.style.cssText = 'cursor:pointer;opacity:0.7;';
 const trackNameEl = document.createElement('span');
 trackNameEl.textContent = '로딩 중...';
 trackNameEl.style.cssText =
-  'min-width:120px;text-align:center;max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;';
+  'min-width:125px;text-align:center;max-width:380px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;';
 
 const nextBtn = document.createElement('span');
 nextBtn.textContent = 'next';
@@ -1239,7 +1563,7 @@ const spatialBtn = document.createElement('span');
 spatialBtn.textContent = '360';
 spatialBtn.title = '360 공간음향 on/off';
 spatialBtn.style.cssText =
-  'cursor:pointer;font-size:11px;font-weight:bold;padding:2px 5px;border-radius:4px;background:rgba(80,180,255,0.35);color:#7df;';
+  'cursor:pointer;font-size:21px;font-weight:bold;padding:4px 10px;border-radius:8px;background:rgba(80,180,255,0.35);color:#7df;';
 spatialBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   const next = !spatialMode;
@@ -1249,9 +1573,14 @@ spatialBtn.addEventListener('click', (e) => {
 });
 
 const srcToggleBtn = document.createElement('span');
-srcToggleBtn.textContent = '🔊';
+srcToggleBtn.innerHTML = `<svg width="26" height="22" viewBox="0 0 26 22" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;">
+  <polygon points="1,7 7,7 13,1 13,21 7,15 1,15" fill="currentColor"/>
+  <path d="M16 6 C19.5 8.5 19.5 13.5 16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+  <path d="M19.5 3 C24.5 6.5 24.5 15.5 19.5 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+</svg>`;
 srcToggleBtn.title = DEV_MODE ? '음원 위치 조정' : '볼륨';
-srcToggleBtn.style.cssText = 'cursor:pointer;opacity:0.7;font-size:13px;';
+srcToggleBtn.style.cssText =
+  'cursor:pointer;opacity:0.65;line-height:0;display:flex;align-items:center;color:#eee;';
 
 playerEl.appendChild(prevBtn);
 playerEl.appendChild(trackNameEl);
@@ -1259,25 +1588,19 @@ playerEl.appendChild(nextBtn);
 playerEl.appendChild(spatialBtn);
 playerEl.appendChild(srcToggleBtn);
 
-// ── 볼륨 노브 패널 (배포 모드) ───────────────────────────────
+// ── 볼륨 슬라이더 패널 (배포 모드) ──────────────────────────
 const volPanel = document.createElement('div');
-volPanel.style.cssText = `background:rgba(0,0,0,0.72);padding:14px 16px;border-radius:12px;backdrop-filter:blur(6px);flex-direction:column;align-items:center;gap:8px;min-width:90px;`;
+volPanel.style.cssText = `background:rgba(0,0,0,0.72);padding:19px 27px;border-radius:23px;backdrop-filter:blur(6px);flex-direction:column;align-items:center;gap:11px;min-width:304px;`;
 playerWrap.appendChild(volPanel);
 volPanel.style.display = 'none';
 
 const volLabel = document.createElement('div');
-volLabel.textContent = '볼륨';
-volLabel.style.cssText = 'color:#aaa;font-size:10px;';
+volLabel.textContent = 'Volume';
+volLabel.style.cssText = 'color:#aaa;font-size:21px;';
 volPanel.appendChild(volLabel);
 
-const volKnobWrap = document.createElement('div');
-volKnobWrap.style.cssText =
-  'position:relative;width:56px;height:56px;display:flex;align-items:center;justify-content:center;';
-
-const volRing = document.createElement('div');
-volRing.style.cssText =
-  'position:absolute;inset:0;border-radius:50%;background:rgba(255,255,255,0.07);border:2px solid rgba(255,255,255,0.15);';
-volKnobWrap.appendChild(volRing);
+const volSliderRow = document.createElement('div');
+volSliderRow.style.cssText = 'display:flex;align-items:center;gap:15px;width:100%;';
 
 const volKnobInput = document.createElement('input');
 volKnobInput.type = 'range';
@@ -1285,19 +1608,13 @@ volKnobInput.min = '0';
 volKnobInput.max = '2';
 volKnobInput.step = '0.01';
 volKnobInput.value = String(activeEm().params.volume);
-volKnobInput.style.cssText = `writing-mode:vertical-lr;direction:rtl;width:44px;height:44px;cursor:pointer;-webkit-appearance:slider-vertical;appearance:slider-vertical;opacity:0.01;position:absolute;inset:0;margin:auto;z-index:2;`;
-volKnobWrap.appendChild(volKnobInput);
-
-const volNeedle = document.createElement('div');
-volNeedle.style.cssText = `position:absolute;bottom:50%;left:50%;width:2px;height:20px;background:#7df;border-radius:2px;transform-origin:bottom center;transform:translateX(-50%) rotate(0deg);pointer-events:none;z-index:1;`;
-volKnobWrap.appendChild(volNeedle);
+volKnobInput.style.cssText = 'flex:1;cursor:pointer;accent-color:#7df;';
 
 const volValueEl = document.createElement('div');
-volValueEl.style.cssText = 'color:#7df;font-size:11px;font-weight:bold;';
+volValueEl.style.cssText =
+  'color:#7df;font-size:23px;font-weight:bold;min-width:68px;text-align:right;';
 
 function updateVolKnob(v: number): void {
-  const deg = (v / 2) * 270 - 135;
-  volNeedle.style.transform = `translateX(-50%) rotate(${deg}deg)`;
   volValueEl.textContent = Math.round(v * 100) + '%';
   const em = activeEm();
   em.params.volume = v;
@@ -1307,8 +1624,9 @@ function updateVolKnob(v: number): void {
 volKnobInput.addEventListener('input', () => updateVolKnob(parseFloat(volKnobInput.value)));
 updateVolKnob(activeEm().params.volume);
 
-volPanel.appendChild(volKnobWrap);
-volPanel.appendChild(volValueEl);
+volSliderRow.appendChild(volKnobInput);
+volSliderRow.appendChild(volValueEl);
+volPanel.appendChild(volSliderRow);
 
 // ── DEV 모드: 음원 패널 ───────────────────────────────────────
 const srcPanel = document.createElement('div');
@@ -1317,7 +1635,7 @@ playerWrap.appendChild(srcPanel);
 
 const srcTitle = document.createElement('div');
 srcTitle.textContent = '음원 위치';
-srcTitle.style.cssText = 'color:#aaa;font-size:10px;margin-bottom:6px;';
+srcTitle.style.cssText = 'color:#aaa;font-size:10px;margin-bottom:6px; display:none;';
 srcPanel.appendChild(srcTitle);
 
 function makeSrcSlider(
@@ -1626,7 +1944,7 @@ async function playTrack(idx: number): Promise<void> {
       if (currentTrackIdx < tracks.length - 1) playTrack(currentTrackIdx + 1);
     };
     currentSource.start(0);
-    trackNameEl.textContent = '♪ ' + getTrackDisplayName(tracks[currentTrackIdx]);
+    trackNameEl.textContent = getTrackDisplayName(tracks[currentTrackIdx]);
   } catch (e) {
     console.error('트랙 로드 실패:', e);
     trackNameEl.textContent = '오류: ' + tracks[currentTrackIdx];
