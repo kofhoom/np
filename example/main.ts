@@ -129,11 +129,11 @@ function makeFlareSprite(r: number, g: number, b: number, sharp = false) {
   return { mat, sprite };
 }
 
-// 메인 글로우 + 화면공간 보조 플레어 3개
-const sunGlow = makeFlareSprite(255, 240, 180); // 따뜻한 노란 글로우
-const flare1 = makeFlareSprite(180, 220, 255, true); // 쿨 블루
-const flare2 = makeFlareSprite(210, 170, 255, true); // 퍼플
-const flare3 = makeFlareSprite(255, 200, 130, true); // 앰버
+// 메인 글로우 + 화면공간 보조 플레어 3개 (모두 따뜻한 계열)
+const sunGlow = makeFlareSprite(255, 240, 180); // 노란 글로우
+const flare1 = makeFlareSprite(255, 220, 160, true); // 골든
+const flare2 = makeFlareSprite(255, 200, 140, true); // 앰버
+const flare3 = makeFlareSprite(240, 200, 120, true); // 웜 오렌지
 const { mat: sunGlowMat, sprite: sunGlowSprite } = sunGlow;
 
 function updateSun(azDeg: number, elDeg: number): void {
@@ -501,11 +501,19 @@ const GLB_CHUNKS = [
           // 저장된 그룹 뷰 위치가 있으면 그리로 이동
           const savedView = saved.groupViews?.[idx];
           if (savedView) {
+            const te = new Vector3(savedView.tx, savedView.ty, savedView.tz);
+            let ce = new Vector3(savedView.px, savedView.py, savedView.pz);
+            // 세로 화면(모바일 portrait)이면 저장된 거리보다 뒤로 빼줌
+            if (viewer.camera.aspect < 0.85) {
+              const pullback = (0.85 / viewer.camera.aspect - 1) * 0.6;
+              const dir = ce.clone().sub(te).normalize();
+              ce = ce.clone().addScaledVector(dir, pullback);
+            }
             flyAnim = {
               cs: viewer.camera.position.clone(),
-              ce: new Vector3(savedView.px, savedView.py, savedView.pz),
+              ce,
               ts: viewer.cameraControls.target.clone(),
-              te: new Vector3(savedView.tx, savedView.ty, savedView.tz),
+              te,
               t: 0,
             };
             return;
@@ -602,6 +610,11 @@ const GLB_CHUNKS = [
               .addScaledVector(sunDir, DIST)
               .project(viewer.camera); // [-1,1]
 
+            // 태양이 화면 안에 있을 때만 artifact 표시 (z>1 이면 카메라 뒤)
+            const sunOnScreen =
+              sunNDC.z <= 1 && Math.abs(sunNDC.x) < 1.5 && Math.abs(sunNDC.y) < 1.5;
+            const artifactVis = sunOnScreen ? vis : 0;
+
             const artifacts: Array<{
               mat: SpriteMaterial;
               sprite: Sprite;
@@ -609,9 +622,9 @@ const GLB_CHUNKS = [
               scale: number;
               op: number;
             }> = [
-              { ...flare1, t: 0.3, scale: 0.38, op: 0.75 },
-              { ...flare2, t: 0.56, scale: 0.22, op: 0.55 },
-              { ...flare3, t: 0.8, scale: 0.16, op: 0.45 },
+              { ...flare1, t: 0.3, scale: 0.28, op: 0.45 },
+              { ...flare2, t: 0.56, scale: 0.18, op: 0.35 },
+              { ...flare3, t: 0.8, scale: 0.12, op: 0.25 },
             ];
 
             for (const a of artifacts) {
@@ -623,7 +636,7 @@ const GLB_CHUNKS = [
               const dir = ndcPt.sub(viewer.camera.position).normalize();
               a.sprite.position.copy(viewer.camera.position).addScaledVector(dir, DIST);
               a.sprite.scale.setScalar(DIST * a.scale * curFlareScale * (1 + shimmer * 0.4));
-              a.mat.opacity = vis * a.op;
+              a.mat.opacity = artifactVis * a.op;
             }
           }
 
@@ -1540,7 +1553,7 @@ function createEmitter(
 })();
 
 // ── 플레이어 UI ───────────────────────────────────────────────
-const _uiZoom = Math.min(1, window.innerWidth / 820);
+const _uiZoom = Math.max(0.55, Math.min(1, window.innerWidth / 820));
 const playerWrap = document.createElement('div');
 playerWrap.style.cssText = `position:fixed;top:27px;right:27px;font-family:sans-serif;font-size:23px;color:#eee;display:flex;flex-direction:column;align-items:flex-end;gap:11px;z-index:200;user-select:none;zoom:${_uiZoom};`;
 document.body.appendChild(playerWrap);
