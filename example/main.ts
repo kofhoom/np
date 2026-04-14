@@ -64,13 +64,13 @@ fetch('data/settings.json')
   .catch(() => {});
 
 const loadingEl = document.createElement('div');
-loadingEl.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;z-index:999;gap:16px;`;
+loadingEl.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100dvh;background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;z-index:999;gap:16px;`;
 loadingEl.innerHTML = `
-  <div id="loading-text" style="font-size:34px;letter-spacing:2px;opacity:0.85;">Loading...</div>
-  <div style="width:494px;height:8px;background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;">
+  <div id="loading-text" style="font-size:clamp(18px,5vw,34px);letter-spacing:2px;opacity:0.85;">Loading...</div>
+  <div style="width:min(494px,80vw);height:clamp(4px,1.2vw,8px);background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;">
     <div id="loading-bar" style="height:100%;width:0%;background:#fff;border-radius:4px;transition:width 0.2s ease;"></div>
   </div>
-  <div id="loading-pct" style="font-size:25px;opacity:0.5;">0%</div>
+  <div id="loading-pct" style="font-size:clamp(13px,3.5vw,25px);opacity:0.5;">0%</div>
 `;
 document.body.appendChild(loadingEl);
 
@@ -121,6 +121,7 @@ function makeFlareSprite(r: number, g: number, b: number, sharp = false) {
     depthTest: false,
     transparent: true,
     blending: AdditiveBlending,
+    opacity: 0, // RAF에서 계산 전까지 숨김
   });
   const sprite = new Sprite(mat);
   sprite.renderOrder = 999;
@@ -321,7 +322,7 @@ const GLB_CHUNKS = [
           chunkLoaded[i] = loaded;
           const totalLoaded = chunkLoaded.reduce((a, b) => a + b, 0);
           const totalSize = chunkTotal.reduce((a, b) => a + b, 0);
-          const pct = totalSize > 0 ? (totalLoaded / totalSize) * 100 : 0;
+          const pct = totalSize > 0 ? Math.min(99, (totalLoaded / totalSize) * 100) : 0;
           setLoadingProgress(pct, 'Loading...');
         }
         const buf = new Uint8Array(loaded);
@@ -420,7 +421,7 @@ const GLB_CHUNKS = [
         const viewingBar = document.createElement('div');
         viewingBar.style.cssText = `
           display:none;position:fixed;top:27px;left:27px;z-index:200;
-          display:none;gap:15px;align-items:center;
+          display:none;gap:15px;align-items:center;zoom:${_uiZoom};
         `;
         document.body.appendChild(viewingBar);
 
@@ -1085,6 +1086,7 @@ const GLB_CHUNKS = [
           viewer.cameraControls.maxPolarAngle = Math.PI;
         }
         viewer.cameraControls.update();
+        setLoadingProgress(100, 'Loading...');
         loadingEl.remove();
       },
       (err) => console.error('GLB 로드 실패:', err),
@@ -1538,8 +1540,9 @@ function createEmitter(
 })();
 
 // ── 플레이어 UI ───────────────────────────────────────────────
+const _uiZoom = Math.min(1, window.innerWidth / 820);
 const playerWrap = document.createElement('div');
-playerWrap.style.cssText = `position:fixed;top:27px;right:27px;font-family:sans-serif;font-size:23px;color:#eee;display:flex;flex-direction:column;align-items:flex-end;gap:11px;z-index:200;user-select:none;`;
+playerWrap.style.cssText = `position:fixed;top:27px;right:27px;font-family:sans-serif;font-size:23px;color:#eee;display:flex;flex-direction:column;align-items:flex-end;gap:11px;z-index:200;user-select:none;zoom:${_uiZoom};`;
 document.body.appendChild(playerWrap);
 
 const playerEl = document.createElement('div');
