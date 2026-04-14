@@ -79,7 +79,7 @@ export class Viewer {
   //anything above 2.300.000 particles will require a higher texture and could break.
   private pointBudget = 1200000;
 
-  async initialize(targetEl: HTMLElement): Promise<void> {
+  async initialize(targetEl: HTMLElement, devMode = false): Promise<void> {
     if (this.targetEl || !targetEl) {
       return;
     }
@@ -118,19 +118,21 @@ export class Viewer {
     this.cameraControls.zoomSpeed = 2.0;
     this.cameraControls.enableZoom = false;
 
-    // Wheel: move camera + target forward along view direction (no distance limit)
-    targetEl.addEventListener(
-      'wheel',
-      (e: WheelEvent) => {
-        e.preventDefault();
-        const forward = new Vector3();
-        this.camera.getWorldDirection(forward);
-        const delta = -e.deltaY * 0.01;
-        this.camera.position.addScaledVector(forward, delta);
-        this.cameraControls.target.addScaledVector(forward, delta);
-      },
-      { passive: false },
-    );
+    if (devMode) {
+      // Wheel: move camera + target forward along view direction (no distance limit)
+      targetEl.addEventListener(
+        'wheel',
+        (e: WheelEvent) => {
+          e.preventDefault();
+          const forward = new Vector3();
+          this.camera.getWorldDirection(forward);
+          const delta = -e.deltaY * 0.01;
+          this.camera.position.addScaledVector(forward, delta);
+          this.cameraControls.target.addScaledVector(forward, delta);
+        },
+        { passive: false },
+      );
+    }
 
     this.resize();
     window.addEventListener('resize', this.resize);

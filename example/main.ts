@@ -24,6 +24,8 @@ import {
   PlaneGeometry,
   VideoTexture,
   DoubleSide,
+  PMREMGenerator,
+  Scene,
 } from 'three';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 
@@ -92,9 +94,21 @@ function updateSun(azDeg: number, elDeg: number): void {
   sky.material.uniforms['sunPosition'].value.set(x, y, z);
   sunLight.position.set(x * 500, y * 500, z * 500);
   sunLight.target.updateMatrixWorld();
+
+  // Sky → envMap 생성해서 STL 등 MeshStandardMaterial에 환경광 반영
+  const pmrem = new PMREMGenerator(viewer.renderer);
+  pmrem.compileCubemapShader();
+  viewer.scene.remove(sky);
+  const tmpScene = new Scene();
+  tmpScene.add(sky);
+  const envMap = pmrem.fromScene(tmpScene).texture;
+  tmpScene.remove(sky);
+  viewer.scene.add(sky);
+  viewer.scene.environment = envMap;
+  pmrem.dispose();
 }
 
-viewer.initialize(targetEl).then(() => {
+viewer.initialize(targetEl, DEV_MODE).then(() => {
   viewer.renderer.toneMapping = ACESFilmicToneMapping;
   viewer.renderer.toneMappingExposure = saved.exposure ?? 0.284;
   viewer.renderer.outputColorSpace = SRGBColorSpace;
@@ -250,28 +264,37 @@ const GLB_CHUNKS = [
         model.updateMatrixWorld(true);
 
         // ── STL 오브젝트 (Group + Video + Annotation) ─────────────
-        const STL_CONFIG: Array<{ url: string; video: string | null; label: string }> = [
+        const STL_CONFIG: Array<{
+          url: string;
+          video: string | null;
+          label: string;
+          videoScale?: number;
+        }> = [
           // {
           //   url: 'data/stl/6-abacus-the-ascension.stl',
           //   video: 'data/video/test_video.mp4',
           //   label: 'Abacus Ascension',
+          //   videoScale: 5.0,
           // },
           {
             url: 'data/stl/new-palmyra-column-top-1.stl',
             video:
               'data/video/AQOSkMQFguVPMGc9kZhEBHz6ISco_0hxXGb72IZkNeJ9LSAlbJomIIiFghzv6lpny857fHu9CVMuSVZDCh_NL2iD05ZhXNphnVEfisZOBA.mp4',
-            label: 'Palmyra Column',
-          },
-          {
-            url: 'data/stl/new-palmyra-column-top-1.stl',
-            video: 'data/video/test_video.mp4',
-            label: 'Palmyra Column',
+            label: 'AQOSkMQFguVPMGc9kZhEBHz6ISco',
+            videoScale: 5.0,
           },
           {
             url: 'data/stl/new-palmyra-column-top-1.stl',
             video:
               'data/video/AQOQGQmWLYL5QQ8X59weGNC4T0bpZx2kU-8mmgiq99XfPTS6B8-jP5rr3QLa08Y3T7ubE8mjaNWWfOWZrU-OszZLcG_pJSPKave2dtb1yQ.mp4',
-            label: 'Palmyra Column',
+            label: 'test_video',
+            videoScale: 3.0,
+          },
+          {
+            url: 'data/stl/new-palmyra-column-top-1.stl',
+            video: 'data/video/test_video.mp4',
+            label: 'AQOQGQmWLYL5QQ8X59weGNC4T0bpZx2kU',
+            videoScale: 3.0,
           },
         ];
         const stlGroups: Group[] = [];
@@ -417,7 +440,7 @@ const GLB_CHUNKS = [
               const wb = new Box3().setFromObject(group);
               const w = wb.max.x - wb.min.x;
               const d = wb.max.z - wb.min.z;
-              const planeW = Math.max(w, d) * 5.0;
+              const planeW = Math.max(w, d) * (cfg.videoScale ?? 5.0);
               videoPlaneH = planeW * (9 / 16);
               const vid = document.createElement('video');
               vid.src = cfg.video;
@@ -724,7 +747,7 @@ const GLB_CHUNKS = [
         viewer.camera.up.set(0, 1, 0);
         viewer.camera.near = 0.01;
         viewer.camera.far = maxDim * 1000;
-        if (saved.camera) {
+        if (DEV_MODE && saved.camera) {
           viewer.camera.position.set(saved.camera.px, saved.camera.py, saved.camera.pz);
           viewer.cameraControls.target.set(saved.camera.tx, saved.camera.ty, saved.camera.tz);
         } else {
