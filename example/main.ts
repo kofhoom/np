@@ -1,6 +1,7 @@
 import { Viewer } from './viewer';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
 import { Sky } from 'three/examples/jsm/objects/Sky';
 import {
@@ -362,9 +363,10 @@ const GLB_CHUNKS = [
         viewer.scene.add(model);
         model.updateMatrixWorld(true);
 
-        // ── STL 오브젝트 (Group + Video + Annotation) ─────────────
+        // ── STL / OBJ 오브젝트 (Group + Video + Annotation) ───────
         const STL_CONFIG: Array<{
           url: string;
+          type?: 'stl' | 'obj';
           video: string | null;
           label: string;
           videoScale?: number;
@@ -397,10 +399,35 @@ const GLB_CHUNKS = [
             videoScale: 2.0,
             videoZ: 0.08,
           },
+          {
+            url: 'data/stl/Venus_Kissing_Cupid.stl/Venus_Kissing_Cupid.stl',
+            type: 'stl',
+            video: null,
+            label: 'Venus Kissing Cupid',
+          },
+          {
+            url: 'data/stl/Puck-on-Toadstool_100MB.stl/Puck on Toadstool_100MB.stl',
+            type: 'stl',
+            video: null,
+            label: 'Puck on Toadstool',
+          },
+          {
+            url: 'data/stl/Bayon-Lion.OBJ/Bayon Lion.OBJ',
+            type: 'obj',
+            video: null,
+            label: 'Bayon Lion',
+          },
+          {
+            url: 'data/stl/Thetis.obj/Thetis.obj',
+            type: 'obj',
+            video: null,
+            label: 'Thetis',
+          },
         ];
 
         const stlGroups: Group[] = [];
         const stlLoader = new STLLoader();
+        const objLoader = new OBJLoader();
         let selectedStlGroup: Group | null = null;
 
         const STL_COLORS = { normal: 0xccaa77, hover: 0xffdd88, selected: 0xff8800 };
@@ -674,20 +701,8 @@ const GLB_CHUNKS = [
         requestAnimationFrame(annotRafLoop);
 
         STL_CONFIG.forEach((cfg, idx) => {
-          stlLoader.load(cfg.url, (geometry) => {
-            geometry.computeVertexNormals();
-            const mat = new MeshStandardMaterial({
-              color: STL_COLORS.normal,
-              roughness: 0.6,
-              metalness: 0.2,
-            });
-            const stlMesh = new Mesh(geometry, mat);
-            stlMesh.name = `stl_mesh_${idx}`;
-            stlMesh.rotation.x = -Math.PI / 2;
-
-            const group = new Group();
-            group.name = `stl_${idx}`;
-            group.add(stlMesh);
+          const setupGroup = (group: Group, meshes: Mesh[]) => {
+            group.userData.meshes = meshes;
 
             const savedStl = saved.stl?.[idx];
             if (savedStl) {
@@ -698,11 +713,11 @@ const GLB_CHUNKS = [
               const gltfBox = new Box3().setFromObject(model);
               const gltfSize = new Vector3();
               gltfBox.getSize(gltfSize);
-              const stlBox = new Box3().setFromObject(stlMesh);
-              const stlSize = new Vector3();
-              stlBox.getSize(stlSize);
+              const refBox = new Box3().setFromObject(group);
+              const refSize = new Vector3();
+              refBox.getSize(refSize);
               const targetSize = Math.max(gltfSize.x, gltfSize.y, gltfSize.z) * 0.01;
-              const currentMax = Math.max(stlSize.x, stlSize.y, stlSize.z);
+              const currentMax = Math.max(refSize.x, refSize.y, refSize.z);
               if (currentMax > 0) group.scale.setScalar(targetSize / currentMax);
 
               const cam = viewer.camera;
@@ -734,7 +749,6 @@ const GLB_CHUNKS = [
               vid.loop = true;
               vid.muted = true;
               vid.playsInline = true;
-              // DOM에 추가해야 일부 브라우저에서 autoplay 허용됨
               vid.setAttribute('playsinline', '');
               vid.style.cssText =
                 'position:fixed;top:-9999px;left:-9999px;width:320px;height:180px;pointer-events:none;visibility:hidden;';
@@ -751,7 +765,6 @@ const GLB_CHUNKS = [
               viewer.scene.add(videoPlane);
             }
 
-            // 어노테이션 라벨
             const labelDiv = document.createElement('div');
             labelDiv.textContent = cfg.label;
             labelDiv.style.cssText =
@@ -770,7 +783,44 @@ const GLB_CHUNKS = [
               videoZ: cfg.videoZ,
               labelDiv,
             });
-          });
+          };
+
+          if (cfg.type === 'obj') {
+            objLoader.load(cfg.url, (obj) => {
+              const meshes: Mesh[] = [];
+              obj.traverse((child) => {
+                if (child instanceof Mesh) {
+                  child.geometry.computeVertexNormals();
+                  child.material = new MeshStandardMaterial({
+                    color: STL_COLORS.normal,
+                    roughness: 0.6,
+                    metalness: 0.2,
+                  });
+                  meshes.push(child);
+                }
+              });
+              const group = new Group();
+              group.name = `stl_${idx}`;
+              group.add(obj);
+              setupGroup(group, meshes);
+            });
+          } else {
+            stlLoader.load(cfg.url, (geometry) => {
+              geometry.computeVertexNormals();
+              const mat = new MeshStandardMaterial({
+                color: STL_COLORS.normal,
+                roughness: 0.6,
+                metalness: 0.2,
+              });
+              const stlMesh = new Mesh(geometry, mat);
+              stlMesh.name = `stl_mesh_${idx}`;
+              stlMesh.rotation.x = -Math.PI / 2;
+              const group = new Group();
+              group.name = `stl_${idx}`;
+              group.add(stlMesh);
+              setupGroup(group, [stlMesh]);
+            });
+          }
         });
 
         // STL TransformControls
@@ -799,10 +849,9 @@ const GLB_CHUNKS = [
               stlTC.detach();
               selectedStlGroup = null;
               stlGroups.forEach((g) => {
-                const m = g.children.find(
-                  (c) => c instanceof Mesh && c.name.startsWith('stl_mesh_'),
-                ) as Mesh | undefined;
-                if (m) (m.material as MeshStandardMaterial).color.setHex(STL_COLORS.normal);
+                ((g.userData.meshes ?? []) as Mesh[]).forEach((m) =>
+                  (m.material as MeshStandardMaterial).color.setHex(STL_COLORS.normal),
+                );
               });
             } else {
               stlTC.setMode(['translate', 'rotate', 'scale'][i] as any);
@@ -852,28 +901,25 @@ const GLB_CHUNKS = [
           const rc = new Raycaster();
           rc.setFromCamera(mouse, viewer.camera);
 
-          const stlMeshList = stlGroups
-            .map(
-              (g) =>
-                g.children.find((c) => c instanceof Mesh && c.name.startsWith('stl_mesh_')) as
-                  | Mesh
-                  | undefined,
-            )
-            .filter((m): m is Mesh => !!m);
-
-          const hits = rc.intersectObjects(stlMeshList, false);
+          const allMeshes: Mesh[] = ([] as Mesh[]).concat(
+            ...stlGroups.map((g: Group) => (g.userData.meshes ?? []) as Mesh[]),
+          );
+          const hits = rc.intersectObjects(allMeshes, false);
           if (hits.length > 0) {
             const hitMesh = hits[0].object as Mesh;
-            const hitGroup = hitMesh.parent as Group;
+            // 어떤 그룹에 속하는지 찾기 (STL: 직접 부모, OBJ: 조부모)
+            let hitGroup =
+              stlGroups.find((g) => (g.userData.meshes as Mesh[]).includes(hitMesh)) ?? null;
+            if (!hitGroup) return;
             if (selectedStlGroup && selectedStlGroup !== hitGroup) {
-              const prevMesh = selectedStlGroup.children.find((c) => c instanceof Mesh) as
-                | Mesh
-                | undefined;
-              if (prevMesh)
-                (prevMesh.material as MeshStandardMaterial).color.setHex(STL_COLORS.normal);
+              ((selectedStlGroup.userData.meshes ?? []) as Mesh[]).forEach((m) =>
+                (m.material as MeshStandardMaterial).color.setHex(STL_COLORS.normal),
+              );
             }
             selectedStlGroup = hitGroup;
-            (hitMesh.material as MeshStandardMaterial).color.setHex(STL_COLORS.selected);
+            ((hitGroup.userData.meshes ?? []) as Mesh[]).forEach((m) =>
+              (m.material as MeshStandardMaterial).color.setHex(STL_COLORS.selected),
+            );
             if (!DEV_MODE) {
               // non-DEV: polar 제한 해제 후 플라이-투
               viewer.cameraControls.minPolarAngle = 0;
@@ -895,13 +941,13 @@ const GLB_CHUNKS = [
           const rc = new Raycaster();
           rc.setFromCamera(mouse, viewer.camera);
           stlGroups.forEach((g) => {
-            const m = g.children.find(
-              (c) => c instanceof Mesh && c.name.startsWith('stl_mesh_'),
-            ) as Mesh | undefined;
-            if (!m || g === selectedStlGroup) return;
-            const hits = rc.intersectObject(m, false);
-            (m.material as MeshStandardMaterial).color.setHex(
-              hits.length > 0 ? STL_COLORS.hover : STL_COLORS.normal,
+            if (g === selectedStlGroup) return;
+            const meshes = (g.userData.meshes ?? []) as Mesh[];
+            const hit = rc.intersectObjects(meshes, false).length > 0;
+            meshes.forEach((m) =>
+              (m.material as MeshStandardMaterial).color.setHex(
+                hit ? STL_COLORS.hover : STL_COLORS.normal,
+              ),
             );
           });
         });
