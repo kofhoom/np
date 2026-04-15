@@ -35,7 +35,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-const DEV_MODE = false;
+const DEV_MODE = true;
 
 function saveSettings(data: any): void {
   const json = JSON.stringify(data, null, 2);
@@ -368,6 +368,7 @@ const GLB_CHUNKS = [
           video: string | null;
           label: string;
           videoScale?: number;
+          videoZ?: number;
         }> = [
           // {
           //   url: 'data/stl/6-abacus-the-ascension.stl',
@@ -377,33 +378,34 @@ const GLB_CHUNKS = [
           // },
           {
             url: 'data/stl/new-palmyra-column-top-1.stl',
-            video:
-              'data/video/AQOSkMQFguVPMGc9kZhEBHz6ISco_0hxXGb72IZkNeJ9LSAlbJomIIiFghzv6lpny857fHu9CVMuSVZDCh_NL2iD05ZhXNphnVEfisZOBA.mp4',
+            video: 'data/video/export_4.mov',
             label: 'AQOSkMQFguVPMGc9kZhEBHz6ISco',
             videoScale: 3.0,
+            videoZ: 0.08,
           },
           {
             url: 'data/stl/new-palmyra-column-top-1.stl',
-            video:
-              'data/video/AQOQGQmWLYL5QQ8X59weGNC4T0bpZx2kU-8mmgiq99XfPTS6B8-jP5rr3QLa08Y3T7ubE8mjaNWWfOWZrU-OszZLcG_pJSPKave2dtb1yQ.mp4',
+            video: 'data/video/export_6.mov',
             label: 'test_video',
             videoScale: 2.0,
+            videoZ: 0.08,
           },
           {
             url: 'data/stl/new-palmyra-column-top-1.stl',
-            video: 'data/video/test_video.mp4',
+            video: 'data/video/export_8.mov',
             label: 'AQOQGQmWLYL5QQ8X59weGNC4T0bpZx2kU',
             videoScale: 2.0,
+            videoZ: 0.08,
           },
         ];
+
         const stlGroups: Group[] = [];
         const stlLoader = new STLLoader();
         let selectedStlGroup: Group | null = null;
 
         const STL_COLORS = { normal: 0xccaa77, hover: 0xffdd88, selected: 0xff8800 };
-
-        // 어노테이션 컨테이너 (캔버스 위에 HTML 레이어)
         const annotContainer = document.createElement('div');
+
         annotContainer.style.cssText =
           'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;';
         targetEl.style.position = 'relative';
@@ -413,8 +415,11 @@ const GLB_CHUNKS = [
           group: Group;
           videoPlane: Mesh | null;
           videoPlaneH: number;
+          videoPlaneW: number;
+          videoZ: number | undefined;
           labelDiv: HTMLDivElement;
         }
+
         const annotEntries: AnnotEntry[] = [];
 
         // ── 관람 UI (캔슬 + 위치 저장) ───────────────────────────
@@ -464,14 +469,12 @@ const GLB_CHUNKS = [
         viewingBar.appendChild(saveViewBtn);
         viewingBar.appendChild(cancelBtn);
 
-        // 원위치 저장 (non-DEV는 항상 하드코딩 기본값)
         const HOME_POS = new Vector3(-2.0876, -9.8333, 1.9685);
         const HOME_TARGET = new Vector3(-1.4539, -9.7561, 1.389);
         let homePos = HOME_POS.clone();
         let homeTarget = HOME_TARGET.clone();
         let currentViewGroupIdx: number | null = null;
 
-        // 카메라 플라이-투 애니메이션 상태
         let flyAnim: {
           cs: Vector3;
           ce: Vector3;
@@ -482,11 +485,9 @@ const GLB_CHUNKS = [
         } | null = null;
 
         function flyToGroup(g: Group): void {
-          // 그룹 인덱스 추적
           const idx = parseInt(g.name.replace('stl_', ''), 10);
           currentViewGroupIdx = isNaN(idx) ? null : idx;
 
-          // 원위치 저장
           if (!DEV_MODE) {
             homePos = HOME_POS.clone();
             homeTarget = HOME_TARGET.clone();
@@ -498,12 +499,10 @@ const GLB_CHUNKS = [
           viewingBar.style.display = 'flex';
           viewer.cameraControls.enabled = false;
 
-          // 저장된 그룹 뷰 위치가 있으면 그리로 이동
           const savedView = saved.groupViews?.[idx];
           if (savedView) {
             const te = new Vector3(savedView.tx, savedView.ty, savedView.tz);
             let ce = new Vector3(savedView.px, savedView.py, savedView.pz);
-            // 세로 화면(모바일 portrait)이면 저장된 거리보다 뒤로 빼줌
             if (viewer.camera.aspect < 0.85) {
               const pullback = (0.85 / viewer.camera.aspect - 1) * 0.6;
               const dir = ce.clone().sub(te).normalize();
@@ -519,7 +518,6 @@ const GLB_CHUNKS = [
             return;
           }
 
-          // 저장된 위치 없으면 FOV 기반 자동 계산
           const box = new Box3().setFromObject(g);
           const entry = annotEntries.find((en) => en.group === g);
           if (entry?.videoPlane) {
@@ -557,7 +555,6 @@ const GLB_CHUNKS = [
             onDone: () => {
               viewer.cameraControls.enabled = true;
               if (!DEV_MODE) {
-                // 원위치 복귀 후 polar 제한 복원
                 const dx = homePos.x - homeTarget.x;
                 const dy = homePos.y - homeTarget.y;
                 const dz = homePos.z - homeTarget.z;
@@ -567,7 +564,6 @@ const GLB_CHUNKS = [
               }
             },
           };
-          // 이동 중 polar 제한 해제
           if (!DEV_MODE) {
             viewer.cameraControls.minPolarAngle = 0;
             viewer.cameraControls.maxPolarAngle = Math.PI;
@@ -576,7 +572,6 @@ const GLB_CHUNKS = [
 
         cancelBtn.addEventListener('click', flyHome);
 
-        // 어노테이션 + 플라이-투 RAF 루프
         function annotRafLoop(): void {
           requestAnimationFrame(annotRafLoop);
 
@@ -599,18 +594,15 @@ const GLB_CHUNKS = [
             const dot = Math.max(0, camFwd.dot(sunDir));
             const vis = Math.pow(dot, 1.8);
 
-            // 메인 글로우 – 태양 방향으로 고정 거리
             sunGlowSprite.position.copy(viewer.camera.position).addScaledVector(sunDir, DIST);
             sunGlowSprite.scale.setScalar(DIST * 1.1 * curFlareScale * (1 + shimmer));
             sunGlowMat.opacity = vis * 0.92;
 
-            // 화면공간 보조 플레어: 태양 NDC → 화면중심(0,0) 방향으로 배치
             const sunNDC = new Vector3()
               .copy(viewer.camera.position)
               .addScaledVector(sunDir, DIST)
               .project(viewer.camera); // [-1,1]
 
-            // 태양이 화면 안에 있을 때만 artifact 표시 (z>1 이면 카메라 뒤)
             const sunOnScreen =
               sunNDC.z <= 1 && Math.abs(sunNDC.x) < 1.5 && Math.abs(sunNDC.y) < 1.5;
             const artifactVis = sunOnScreen ? vis : 0;
@@ -628,10 +620,8 @@ const GLB_CHUNKS = [
             ];
 
             for (const a of artifacts) {
-              // NDC상에서 태양→중심 방향으로 t 비율 위치
               const ax = sunNDC.x * (1 - a.t);
               const ay = sunNDC.y * (1 - a.t);
-              // 화면공간 좌표를 카메라 앞 DIST 거리의 월드 포지션으로 변환
               const ndcPt = new Vector3(ax, ay, 0.1).unproject(viewer.camera);
               const dir = ndcPt.sub(viewer.camera.position).normalize();
               a.sprite.position.copy(viewer.camera.position).addScaledVector(dir, DIST);
@@ -640,7 +630,6 @@ const GLB_CHUNKS = [
             }
           }
 
-          // 근접 클리핑 플레인 매 프레임 업데이트
           if (proximityClipEnabled) {
             const forward = new Vector3();
             viewer.camera.getWorldDirection(forward);
@@ -648,7 +637,6 @@ const GLB_CHUNKS = [
             proximityPlane.constant = -(viewer.camera.position.dot(forward) + proximityClipDist);
           }
 
-          // 플라이-투
           if (flyAnim) {
             flyAnim.t = Math.min(1, flyAnim.t + 0.025);
             const s = 1 - Math.pow(1 - flyAnim.t, 3); // cubic ease-out
@@ -662,19 +650,20 @@ const GLB_CHUNKS = [
             }
           }
 
-          // 어노테이션 위치 + 비디오 플레인 위치 갱신
           for (const entry of annotEntries) {
             const wb = new Box3().setFromObject(entry.group);
             const cx = (wb.min.x + wb.max.x) * 0.5;
             const cz = (wb.min.z + wb.max.z) * 0.5;
 
             if (entry.videoPlane) {
-              // 수직으로 세워서 배치: 모델 상단에 바닥이 닿도록
-              entry.videoPlane.position.set(cx, wb.max.y + entry.videoPlaneH * 0.5, cz);
+              entry.videoPlane.position.set(
+                cx,
+                wb.max.y + (entry.videoZ ?? 0) + entry.videoPlaneH * 0.5,
+                cz,
+              );
               entry.videoPlane.rotation.copy(entry.group.rotation);
             }
 
-            // 3D → 2D 투영
             const wp = new Vector3(cx, wb.max.y + 0.3, cz);
             wp.project(viewer.camera);
             entry.labelDiv.style.display = 'none';
@@ -694,8 +683,6 @@ const GLB_CHUNKS = [
             });
             const stlMesh = new Mesh(geometry, mat);
             stlMesh.name = `stl_mesh_${idx}`;
-            // Z-up → Y-up 보정은 항상 메시에 고정 (-PI/2).
-            // 저장값 rx = group.rx + mesh.rx, 즉 load 시 group.rx = savedRx + PI/2
             stlMesh.rotation.x = -Math.PI / 2;
 
             const group = new Group();
@@ -705,11 +692,9 @@ const GLB_CHUNKS = [
             const savedStl = saved.stl?.[idx];
             if (savedStl) {
               group.position.set(savedStl.px, savedStl.py, savedStl.pz);
-              // savedStl.rx 에는 mesh.rx(-PI/2)가 합산돼 있으므로 빼준다
               group.rotation.set(savedStl.rx + Math.PI / 2, savedStl.ry, savedStl.rz);
               group.scale.set(savedStl.sx, savedStl.sy, savedStl.sz);
             } else {
-              // 자동 스케일: glTF 대비 적당한 크기로
               const gltfBox = new Box3().setFromObject(model);
               const gltfSize = new Vector3();
               gltfBox.getSize(gltfSize);
@@ -720,7 +705,6 @@ const GLB_CHUNKS = [
               const currentMax = Math.max(stlSize.x, stlSize.y, stlSize.z);
               if (currentMax > 0) group.scale.setScalar(targetSize / currentMax);
 
-              // 카메라 앞쪽에 배치
               const cam = viewer.camera;
               const forward = new Vector3();
               cam.getWorldDirection(forward);
@@ -736,15 +720,15 @@ const GLB_CHUNKS = [
             group.updateMatrixWorld(true);
             stlGroups.push(group);
 
-            // 비디오 플레인 (씬에 직접 추가, RAF에서 위치 추적)
             let videoPlane: Mesh | null = null;
             let videoPlaneH = 0;
+            let videoPlaneW = 0;
             if (cfg.video) {
               const wb = new Box3().setFromObject(group);
               const w = wb.max.x - wb.min.x;
               const d = wb.max.z - wb.min.z;
-              const planeW = Math.max(w, d) * (cfg.videoScale ?? 5.0);
-              videoPlaneH = planeW * (9 / 16);
+              videoPlaneW = Math.max(w, d) * (cfg.videoScale ?? 5.0);
+              videoPlaneH = videoPlaneW * (9 / 16);
               const vid = document.createElement('video');
               vid.src = cfg.video;
               vid.loop = true;
@@ -760,7 +744,7 @@ const GLB_CHUNKS = [
               const vTex = new VideoTexture(vid);
               vTex.colorSpace = SRGBColorSpace;
               videoPlane = new Mesh(
-                new PlaneGeometry(planeW, planeW * (9 / 16)),
+                new PlaneGeometry(videoPlaneW, videoPlaneW * (9 / 16)),
                 new MeshBasicMaterial({ map: vTex, side: DoubleSide }),
               );
               videoPlane.name = `video_plane_${idx}`;
@@ -778,7 +762,14 @@ const GLB_CHUNKS = [
             labelDiv.addEventListener('click', () => flyToGroup(group));
             annotContainer.appendChild(labelDiv);
 
-            annotEntries.push({ group, videoPlane, videoPlaneH, labelDiv });
+            annotEntries.push({
+              group,
+              videoPlane,
+              videoPlaneH,
+              videoPlaneW,
+              videoZ: cfg.videoZ,
+              labelDiv,
+            });
           });
         });
 
@@ -1430,7 +1421,6 @@ function applySettingsToScene(s: any): void {
       if (se.params) Object.assign(em.params, se.params);
       applyEmitterPos(em);
       applyEmitterParams(em);
-      // 첫 번째 emitter(활성) 슬라이더 UI 업데이트
       if (i === 0) {
         const p = em.params;
         const vals = [
@@ -1525,7 +1515,6 @@ function createEmitter(
   };
 }
 
-// 저장된 emitter 초기화
 (function () {
   const savedEmitters = saved.emitters as any[] | undefined;
   if (savedEmitters && savedEmitters.length > 0) {
