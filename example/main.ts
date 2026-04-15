@@ -348,11 +348,17 @@ const GLB_CHUNKS = [
       (gltf) => {
         const model = gltf.scene;
         model.traverse((obj: any) => {
-          if (obj.isPoints) {
+          if (obj.isPoints || obj.isLine) {
             obj.visible = false;
             return;
           }
-          if (obj.isMesh && obj.geometry) obj.geometry.computeBoundsTree();
+          if (obj.isMesh && obj.geometry) {
+            obj.geometry.computeBoundsTree();
+            const mats: any[] = Array.isArray(obj.material) ? obj.material : [obj.material];
+            mats.forEach((m: any) => {
+              if (m && m.vertexColors) m.vertexColors = false;
+            });
+          }
         });
         acousticModel = model;
         currentModel = model;
