@@ -36,7 +36,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-const DEV_MODE = true;
+const DEV_MODE = false;
 
 function saveSettings(data: any): void {
   const json = JSON.stringify(data, null, 2);
@@ -348,6 +348,10 @@ const GLB_CHUNKS = [
       (gltf) => {
         const model = gltf.scene;
         model.traverse((obj: any) => {
+          if (obj.isPoints) {
+            obj.visible = false;
+            return;
+          }
           if (obj.isMesh && obj.geometry) obj.geometry.computeBoundsTree();
         });
         acousticModel = model;
@@ -430,7 +434,7 @@ const GLB_CHUNKS = [
         const objLoader = new OBJLoader();
         let selectedStlGroup: Group | null = null;
 
-        const STL_COLORS = { normal: 0xccaa77, hover: 0xffdd88, selected: 0xff8800 };
+        const STL_COLORS = { normal: 0xd4d0c8, hover: 0xe4e0d8, selected: 0xe4e0d8 };
         const annotContainer = document.createElement('div');
 
         annotContainer.style.cssText =
@@ -472,14 +476,12 @@ const GLB_CHUNKS = [
         saveViewBtn.style.cssText = `
           background:rgba(0,80,200,0.7);color:#fff;border:1px solid rgba(100,160,255,0.4);
           padding:13px 30px;border-radius:38px;cursor:pointer;font-size:25px;
-          backdrop-filter:blur(4px);transition:background 0.2s; display: none;
+          backdrop-filter:blur(4px);transition:background 0.2s; display:none;
         `;
         saveViewBtn.onmouseenter = () => (saveViewBtn.style.background = 'rgba(0,100,240,0.9)');
         saveViewBtn.onmouseleave = () => (saveViewBtn.style.background = 'rgba(0,80,200,0.7)');
         saveViewBtn.addEventListener('click', () => {
-          if (currentViewGroupIdx === null) return;
-          const views = [...(saved.groupViews ?? Array(STL_CONFIG.length).fill(null))];
-          views[currentViewGroupIdx] = {
+          const camSnap = {
             px: viewer.camera.position.x,
             py: viewer.camera.position.y,
             pz: viewer.camera.position.z,
@@ -487,8 +489,16 @@ const GLB_CHUNKS = [
             ty: viewer.cameraControls.target.y,
             tz: viewer.cameraControls.target.z,
           };
-          saved.groupViews = views;
-          saveSettings({ ...saved, groupViews: views });
+          if (inCeilingView) {
+            saved.venusUpView = camSnap;
+            saveSettings({ ...saved, venusUpView: camSnap });
+          } else {
+            if (currentViewGroupIdx === null) return;
+            const views = [...(saved.groupViews ?? Array(STL_CONFIG.length).fill(null))];
+            views[currentViewGroupIdx] = camSnap;
+            saved.groupViews = views;
+            saveSettings({ ...saved, groupViews: views });
+          }
           saveViewBtn.textContent = '✅ 저장됨';
           setTimeout(() => (saveViewBtn.textContent = '📍 이 위치 저장'), 1500);
         });
@@ -496,11 +506,28 @@ const GLB_CHUNKS = [
         viewingBar.appendChild(saveViewBtn);
         viewingBar.appendChild(cancelBtn);
 
+        // ── Venus UP 버튼 (상단 중앙) ────────────────────────────
+        const upBtn = document.createElement('button');
+        upBtn.textContent = '↑ Up';
+        upBtn.style.cssText = `
+          display:none;position:fixed;top:27px;left:50%;transform:translateX(-50%);z-index:200;
+          background:rgba(0,0,0,0.65);color:#fff;border:1px solid rgba(255,255,255,0.3);
+          padding:13px 30px;border-radius:38px;cursor:pointer;font-size:25px;
+          backdrop-filter:blur(4px);transition:background 0.2s;zoom:${_uiZoom};
+        `;
+        upBtn.onmouseenter = () => (upBtn.style.background = 'rgba(60,60,60,0.85)');
+        upBtn.onmouseleave = () => (upBtn.style.background = 'rgba(0,0,0,0.65)');
+        document.body.appendChild(upBtn);
+
         const HOME_POS = new Vector3(-2.0876, -9.8333, 1.9685);
         const HOME_TARGET = new Vector3(-1.4539, -9.7561, 1.389);
         let homePos = HOME_POS.clone();
         let homeTarget = HOME_TARGET.clone();
         let currentViewGroupIdx: number | null = null;
+        const VENUS_IDX = 3;
+        let venusReturnPos: Vector3 | null = null;
+        let venusReturnTarget: Vector3 | null = null;
+        let inCeilingView = false;
 
         let flyAnim: {
           cs: Vector3;
@@ -541,6 +568,9 @@ const GLB_CHUNKS = [
               ts: viewer.cameraControls.target.clone(),
               te,
               t: 0,
+              onDone: () => {
+                if (idx === VENUS_IDX) upBtn.style.display = 'block';
+              },
             };
             return;
           }
@@ -567,10 +597,17 @@ const GLB_CHUNKS = [
             ts: viewer.cameraControls.target.clone(),
             te: center.clone(),
             t: 0,
+            onDone: () => {
+              if (idx === VENUS_IDX) upBtn.style.display = 'block';
+            },
           };
         }
 
         function flyHome(): void {
+          upBtn.style.display = 'none';
+          inCeilingView = false;
+          venusReturnPos = null;
+          venusReturnTarget = null;
           viewingBar.style.display = 'none';
           viewer.cameraControls.enabled = false;
           flyAnim = {
@@ -581,6 +618,7 @@ const GLB_CHUNKS = [
             t: 0,
             onDone: () => {
               viewer.cameraControls.enabled = true;
+              viewer.cameraControls.enableZoom = false;
               if (!DEV_MODE) {
                 const dx = homePos.x - homeTarget.x;
                 const dy = homePos.y - homeTarget.y;
@@ -597,7 +635,48 @@ const GLB_CHUNKS = [
           }
         }
 
-        cancelBtn.addEventListener('click', flyHome);
+        cancelBtn.addEventListener('click', () => {
+          if (inCeilingView && venusReturnPos && venusReturnTarget) {
+            inCeilingView = false;
+            upBtn.style.display = 'block';
+            viewer.cameraControls.enabled = false;
+            viewer.cameraControls.enableZoom = false;
+            flyAnim = {
+              cs: viewer.camera.position.clone(),
+              ce: venusReturnPos.clone(),
+              ts: viewer.cameraControls.target.clone(),
+              te: venusReturnTarget.clone(),
+              t: 0,
+            };
+          } else {
+            flyHome();
+          }
+        });
+
+        upBtn.addEventListener('click', () => {
+          venusReturnPos = viewer.camera.position.clone();
+          venusReturnTarget = viewer.cameraControls.target.clone();
+          inCeilingView = true;
+          upBtn.style.display = 'none';
+          viewer.cameraControls.enabled = false;
+          viewer.cameraControls.enableZoom = false;
+          const sv = saved.venusUpView;
+          const ce = sv ? new Vector3(sv.px, sv.py, sv.pz) : viewer.camera.position.clone();
+          const te = sv
+            ? new Vector3(sv.tx, sv.ty, sv.tz)
+            : new Vector3(
+                viewer.camera.position.x,
+                viewer.camera.position.y + 18,
+                viewer.camera.position.z + 0.01,
+              );
+          flyAnim = {
+            cs: viewer.camera.position.clone(),
+            ce,
+            ts: viewer.cameraControls.target.clone(),
+            te,
+            t: 0,
+          };
+        });
 
         function annotRafLoop(): void {
           requestAnimationFrame(annotRafLoop);
@@ -793,8 +872,8 @@ const GLB_CHUNKS = [
                   child.geometry.computeVertexNormals();
                   child.material = new MeshStandardMaterial({
                     color: STL_COLORS.normal,
-                    roughness: 0.6,
-                    metalness: 0.2,
+                    roughness: 0.78,
+                    metalness: 0.02,
                   });
                   meshes.push(child);
                 }
@@ -809,8 +888,8 @@ const GLB_CHUNKS = [
               geometry.computeVertexNormals();
               const mat = new MeshStandardMaterial({
                 color: STL_COLORS.normal,
-                roughness: 0.6,
-                metalness: 0.2,
+                roughness: 0.78,
+                metalness: 0.02,
               });
               const stlMesh = new Mesh(geometry, mat);
               stlMesh.name = `stl_mesh_${idx}`;
