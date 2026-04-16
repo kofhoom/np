@@ -35,8 +35,8 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-const DEV_MODE =
-  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+// prettier-ignore
+const DEV_MODE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const IS_MOBILE =
   /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
 
