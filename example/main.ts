@@ -15,6 +15,7 @@ import {
   Mesh,
   SphereGeometry,
   MeshBasicMaterial,
+  MeshLambertMaterial,
   MeshStandardMaterial,
   SpriteMaterial,
   Sprite,
@@ -157,6 +158,11 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
   viewer.renderer.toneMapping = ACESFilmicToneMapping;
   viewer.renderer.toneMappingExposure = saved.exposure ?? 0.284;
   viewer.renderer.outputColorSpace = SRGBColorSpace;
+  if (IS_MOBILE) {
+    viewer.renderer.setPixelRatio(1);
+    const { width, height } = targetEl.getBoundingClientRect();
+    viewer.renderer.setSize(width, height);
+  }
   sky = new Sky();
   sky.scale.setScalar(450000);
   if (!IS_MOBILE) {
@@ -378,6 +384,15 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
               return;
             }
             if (obj.isMesh && obj.geometry && !IS_MOBILE) obj.geometry.computeBoundsTree();
+            if (IS_MOBILE && obj.isMesh && obj.material) {
+              const oldMat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
+              const map = oldMat?.map ?? null;
+              const vc = !!oldMat?.vertexColors;
+              const newMat = new MeshLambertMaterial({ map, vertexColors: vc });
+              if (Array.isArray(obj.material)) obj.material.forEach((m: any) => m?.dispose?.());
+              else oldMat?.dispose?.();
+              obj.material = newMat;
+            }
           });
           acousticModel = model;
           currentModel = model;
