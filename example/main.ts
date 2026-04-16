@@ -1,7 +1,6 @@
 import { Viewer } from './viewer';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls';
 import { Sky } from 'three/examples/jsm/objects/Sky';
 import {
@@ -291,13 +290,11 @@ function sep(label: string): void {
 
 // ── GLB 로드 ──────────────────────────────────────────────────
 const loader = new GLTFLoader();
+const mainDracoLoader = new DRACOLoader();
+mainDracoLoader.setDecoderPath('draco/');
+loader.setDRACOLoader(mainDracoLoader);
 
-const GLB_CHUNKS = [
-  'data/model/model.part0',
-  'data/model/model.part1',
-  'data/model/model.part2',
-  'data/model/model.part3',
-];
+const GLB_CHUNKS = ['data/model_draco/model.part0'];
 
 (async () => {
   try {
@@ -370,7 +367,6 @@ const GLB_CHUNKS = [
         // ── STL / OBJ 오브젝트 (Group + Video + Annotation) ───────
         const STL_CONFIG: Array<{
           url: string;
-          type?: 'stl' | 'obj';
           video: string | null;
           label: string;
           videoScale?: number;
@@ -383,55 +379,53 @@ const GLB_CHUNKS = [
           //   videoScale: 5.0,
           // },
           {
-            url: 'data/stl/new-palmyra-column-top-1.stl',
+            url: 'data/stl/new-palmyra-column-top-1-draco.glb',
             video: 'data/video/export_4.mp4',
             label: 'AQOSkMQFguVPMGc9kZhEBHz6ISco',
             videoScale: 3.0,
             videoZ: 0.08,
           },
           {
-            url: 'data/stl/new-palmyra-column-top-1.stl',
+            url: 'data/stl/new-palmyra-column-top-1-draco.glb',
             video: 'data/video/export_6.mp4',
             label: 'test_video',
             videoScale: 2.0,
             videoZ: 0.08,
           },
           {
-            url: 'data/stl/new-palmyra-column-top-1.stl',
+            url: 'data/stl/new-palmyra-column-top-1-draco.glb',
             video: 'data/video/export_8.mp4',
             label: 'AQOQGQmWLYL5QQ8X59weGNC4T0bpZx2kU',
             videoScale: 2.0,
             videoZ: 0.08,
           },
           {
-            url: 'data/stl/Venus_Kissing_Cupid.stl/Venus_Kissing_Cupid.stl',
-            type: 'stl',
+            url: 'data/stl/Venus_Kissing_Cupid-draco.glb',
             video: null,
             label: 'Venus Kissing Cupid',
           },
           {
-            url: 'data/stl/Puck-on-Toadstool_100MB.stl/Puck on Toadstool_100MB.stl',
-            type: 'stl',
+            url: 'data/stl/Puck-on-Toadstool-draco.glb',
             video: null,
             label: 'Puck on Toadstool',
           },
           {
-            url: 'data/stl/Bayon-Lion.OBJ/Bayon Lion.OBJ',
-            type: 'obj',
+            url: 'data/stl/Bayon-Lion-draco.glb',
             video: null,
             label: 'Bayon Lion',
           },
           {
-            url: 'data/stl/Thetis.obj/Thetis.obj',
-            type: 'obj',
+            url: 'data/stl/Thetis-draco.glb',
             video: null,
             label: 'Thetis',
           },
         ];
 
         const stlGroups: Group[] = [];
-        const stlLoader = new STLLoader();
-        const objLoader = new OBJLoader();
+        const dracoLoader = new DRACOLoader();
+        dracoLoader.setDecoderPath('draco/');
+        const stlGltfLoader = new GLTFLoader();
+        stlGltfLoader.setDRACOLoader(dracoLoader);
         let selectedStlGroup: Group | null = null;
 
         const STL_COLORS = { normal: 0xd4d0c8, hover: 0xe4e0d8, selected: 0xe4e0d8 };
@@ -864,42 +858,24 @@ const GLB_CHUNKS = [
             });
           };
 
-          if (cfg.type === 'obj') {
-            objLoader.load(cfg.url, (obj) => {
-              const meshes: Mesh[] = [];
-              obj.traverse((child) => {
-                if (child instanceof Mesh) {
-                  child.geometry.computeVertexNormals();
-                  child.material = new MeshStandardMaterial({
-                    color: STL_COLORS.normal,
-                    roughness: 0.78,
-                    metalness: 0.02,
-                  });
-                  meshes.push(child);
-                }
-              });
-              const group = new Group();
-              group.name = `stl_${idx}`;
-              group.add(obj);
-              setupGroup(group, meshes);
+          stlGltfLoader.load(cfg.url, (gltf) => {
+            const meshes: Mesh[] = [];
+            gltf.scene.traverse((child: any) => {
+              if (child instanceof Mesh) {
+                child.geometry.computeVertexNormals();
+                child.material = new MeshStandardMaterial({
+                  color: STL_COLORS.normal,
+                  roughness: 0.78,
+                  metalness: 0.02,
+                });
+                meshes.push(child);
+              }
             });
-          } else {
-            stlLoader.load(cfg.url, (geometry) => {
-              geometry.computeVertexNormals();
-              const mat = new MeshStandardMaterial({
-                color: STL_COLORS.normal,
-                roughness: 0.78,
-                metalness: 0.02,
-              });
-              const stlMesh = new Mesh(geometry, mat);
-              stlMesh.name = `stl_mesh_${idx}`;
-              stlMesh.rotation.x = -Math.PI / 2;
-              const group = new Group();
-              group.name = `stl_${idx}`;
-              group.add(stlMesh);
-              setupGroup(group, [stlMesh]);
-            });
-          }
+            const group = new Group();
+            group.name = `stl_${idx}`;
+            group.add(gltf.scene);
+            setupGroup(group, meshes);
+          });
         });
 
         // STL TransformControls

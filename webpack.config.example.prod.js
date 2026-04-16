@@ -52,7 +52,7 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({ title: 'Orthodox Church Viewer' }),
     new CopyWebpackPlugin({
-      patterns: [{ from: path.resolve(__dirname, 'data/interior-view-of-orthodox-church-of-al-tahira/song'), to: 'data/song' }],
+      patterns: [{ from: path.resolve(__dirname, 'data/interior-view-of-orthodox-church-of-al-tahira/song'), to: 'data/song', filter: (resourcePath) => !resourcePath.endsWith('.wav') }],
     }),
   ],
 };
