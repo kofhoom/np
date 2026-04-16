@@ -10,7 +10,7 @@ module.exports = {
   output: {
     filename: 'example.bundle.js',
     path: buildPath,
-    clean: { keep: /data\// },
+    clean: { keep: /(data\/|draco\/)/ },
   },
   mode: 'production',
   devtool: false,
@@ -52,7 +52,10 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({ title: 'Orthodox Church Viewer' }),
     new CopyWebpackPlugin({
-      patterns: [{ from: path.resolve(__dirname, 'data/interior-view-of-orthodox-church-of-al-tahira/song'), to: 'data/song', filter: (resourcePath) => !resourcePath.endsWith('.wav') }],
+      patterns: [
+        { from: path.resolve(__dirname, 'data/interior-view-of-orthodox-church-of-al-tahira/song'), to: 'data/song', filter: (resourcePath) => !resourcePath.endsWith('.wav') },
+        { from: path.resolve(__dirname, 'node_modules/three/examples/jsm/libs/draco/gltf'), to: 'draco' },
+      ],
     }),
   ],
 };
