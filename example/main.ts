@@ -35,7 +35,10 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-const DEV_MODE = true;
+const DEV_MODE =
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const IS_MOBILE =
+  /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
 
 function saveSettings(data: any): void {
   const json = JSON.stringify(data, null, 2);
@@ -351,7 +354,7 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
               obj.visible = false;
               return;
             }
-            if (obj.isMesh && obj.geometry) obj.geometry.computeBoundsTree();
+            if (obj.isMesh && obj.geometry && !IS_MOBILE) obj.geometry.computeBoundsTree();
           });
           acousticModel = model;
           currentModel = model;
