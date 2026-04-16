@@ -352,13 +352,7 @@ const GLB_CHUNKS = [
             obj.visible = false;
             return;
           }
-          if (obj.isMesh && obj.geometry) {
-            obj.geometry.computeBoundsTree();
-            const mats: any[] = Array.isArray(obj.material) ? obj.material : [obj.material];
-            mats.forEach((m: any) => {
-              if (m && m.vertexColors) m.vertexColors = false;
-            });
-          }
+          if (obj.isMesh && obj.geometry) obj.geometry.computeBoundsTree();
         });
         acousticModel = model;
         currentModel = model;
@@ -1617,10 +1611,10 @@ function createEmitter(
   );
   marker.position.set(x, y, z);
   markerSphere.position.set(x, y, z);
-  marker.visible = DEV_MODE;
-  markerSphere.visible = DEV_MODE;
-  viewer.scene.add(marker);
-  viewer.scene.add(markerSphere);
+  if (DEV_MODE) {
+    viewer.scene.add(marker);
+    viewer.scene.add(markerSphere);
+  }
   return {
     id,
     name,

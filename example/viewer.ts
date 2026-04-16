@@ -61,6 +61,8 @@ export class Viewer {
    */
   private reqAnimationFrameHandle: number | undefined;
 
+  private contextLost: boolean = false;
+
   /**
    * Initializes the viewer into the specified element.
    *
@@ -136,6 +138,21 @@ export class Viewer {
 
     this.resize();
     window.addEventListener('resize', this.resize);
+
+    this.renderer.domElement.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      if (this.reqAnimationFrameHandle !== undefined) {
+        cancelAnimationFrame(this.reqAnimationFrameHandle);
+        this.reqAnimationFrameHandle = undefined;
+      }
+    });
+
+    this.renderer.domElement.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false;
+      this.prevTime = undefined;
+      requestAnimationFrame(this.loop);
+    });
 
     targetEl.addEventListener('mousedown', (_) => {
       this.elapsedTime = Date.now();
@@ -317,6 +334,7 @@ export class Viewer {
    * The main loop of the viewer, called at 60FPS, if possible.
    */
   loop = (time: number): void => {
+    if (this.contextLost) return;
     this.reqAnimationFrameHandle = requestAnimationFrame(this.loop);
 
     const prevTime = this.prevTime;
