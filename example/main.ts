@@ -166,6 +166,20 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
       (sky.material as any).fragmentShader = 'precision highp float;\nprecision highp int;\n' + fs;
     }
     sky.material.needsUpdate = true;
+  } else {
+    const fs = (sky.material as any).fragmentShader as string;
+    if (fs && !fs.includes('NP_SPECKLE_GUARD')) {
+      const patched = fs.replace(
+        /gl_FragColor\s*=\s*vec4\(\s*retColor\s*,\s*1\.0\s*\)\s*;/,
+        `// NP_SPECKLE_GUARD: clamp mediump overflow to kill cyan speckles near sun on mobile
+vec3 npSafe = retColor;
+npSafe = (npSafe == npSafe) ? npSafe : vec3(0.0);
+npSafe = clamp(npSafe, vec3(0.0), vec3(60.0));
+gl_FragColor = vec4( npSafe, 1.0 );`,
+      );
+      (sky.material as any).fragmentShader = patched;
+      sky.material.needsUpdate = true;
+    }
   }
   viewer.scene.add(sky);
   const u = sky.material.uniforms;
