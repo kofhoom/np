@@ -159,12 +159,14 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
   viewer.renderer.outputColorSpace = SRGBColorSpace;
   sky = new Sky();
   sky.scale.setScalar(450000);
-  (sky.material as any).precision = 'highp';
-  const fs = (sky.material as any).fragmentShader as string;
-  if (fs && !fs.includes('precision highp float')) {
-    (sky.material as any).fragmentShader = 'precision highp float;\nprecision highp int;\n' + fs;
+  if (!IS_MOBILE) {
+    (sky.material as any).precision = 'highp';
+    const fs = (sky.material as any).fragmentShader as string;
+    if (fs && !fs.includes('precision highp float')) {
+      (sky.material as any).fragmentShader = 'precision highp float;\nprecision highp int;\n' + fs;
+    }
+    sky.material.needsUpdate = true;
   }
-  sky.material.needsUpdate = true;
   viewer.scene.add(sky);
   const u = sky.material.uniforms;
   u['turbidity'].value = 10;
