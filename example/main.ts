@@ -23,6 +23,8 @@ import {
   Group,
   PlaneGeometry,
   VideoTexture,
+  TextureLoader,
+  Texture,
   DoubleSide,
   Plane,
   AdditiveBlending,
@@ -35,8 +37,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 
 require('./main.css');
 
-// prettier-ignore
-const DEV_MODE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const DEV_MODE = false || window.location.hostname === '127.0.0.1';
 const IS_MOBILE =
   /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
 
@@ -158,6 +159,12 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
   viewer.renderer.outputColorSpace = SRGBColorSpace;
   sky = new Sky();
   sky.scale.setScalar(450000);
+  (sky.material as any).precision = 'highp';
+  const fs = (sky.material as any).fragmentShader as string;
+  if (fs && !fs.includes('precision highp float')) {
+    (sky.material as any).fragmentShader = 'precision highp float;\nprecision highp int;\n' + fs;
+  }
+  sky.material.needsUpdate = true;
   viewer.scene.add(sky);
   const u = sky.material.uniforms;
   u['turbidity'].value = 10;
@@ -448,9 +455,69 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
             videoPlaneW: number;
             videoZ: number | undefined;
             labelDiv: HTMLDivElement;
+            videoUrl: string | null;
+            thumbTex: Texture | null;
+            videoEl: HTMLVideoElement | null;
+            videoTex: VideoTexture | null;
           }
 
           const annotEntries: AnnotEntry[] = [];
+          let activeVideoEntry: AnnotEntry | null = null;
+          const thumbTextureLoader = new TextureLoader();
+
+          function stopActiveVideo(): void {
+            if (!activeVideoEntry) return;
+            const e = activeVideoEntry;
+            if (e.videoEl) {
+              try {
+                e.videoEl.pause();
+                e.videoEl.removeAttribute('src');
+                e.videoEl.load();
+                e.videoEl.remove();
+              } catch {}
+              e.videoEl = null;
+            }
+            if (e.videoPlane && e.thumbTex) {
+              const mat = e.videoPlane.material as MeshBasicMaterial;
+              if (e.videoTex && mat.map === e.videoTex) {
+                mat.map = e.thumbTex;
+                mat.needsUpdate = true;
+              }
+            }
+            if (e.videoTex) {
+              e.videoTex.dispose();
+              e.videoTex = null;
+            }
+            activeVideoEntry = null;
+          }
+
+          function playEntryVideo(entry: AnnotEntry): void {
+            if (!entry.videoPlane || !entry.videoUrl) return;
+            if (activeVideoEntry === entry && entry.videoEl) return;
+            stopActiveVideo();
+            const vid = document.createElement('video');
+            const useMobileSrc = IS_MOBILE
+              ? entry.videoUrl.replace(/\.mp4$/, '_mobile.mp4')
+              : entry.videoUrl;
+            vid.src = useMobileSrc;
+            vid.loop = true;
+            vid.muted = true;
+            vid.playsInline = true;
+            vid.setAttribute('playsinline', '');
+            vid.style.cssText =
+              'position:fixed;top:-9999px;left:-9999px;width:320px;height:180px;pointer-events:none;visibility:hidden;';
+            document.body.appendChild(vid);
+            vid.load();
+            vid.play().catch(() => {});
+            const vTex = new VideoTexture(vid);
+            vTex.colorSpace = SRGBColorSpace;
+            const mat = entry.videoPlane.material as MeshBasicMaterial;
+            mat.map = vTex;
+            mat.needsUpdate = true;
+            entry.videoEl = vid;
+            entry.videoTex = vTex;
+            activeVideoEntry = entry;
+          }
 
           // ── 관람 UI (캔슬 + 위치 저장) ───────────────────────────
           const viewingBar = document.createElement('div');
@@ -491,6 +558,9 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
             if (inCeilingView) {
               saved.venusUpView = camSnap;
               saveSettings({ ...saved, venusUpView: camSnap });
+            } else if (inSunView) {
+              saved.sunView = camSnap;
+              saveSettings({ ...saved, sunView: camSnap });
             } else {
               if (currentViewGroupIdx === null) return;
               const views = [...(saved.groupViews ?? Array(STL_CONFIG.length).fill(null))];
@@ -527,6 +597,7 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
           let venusReturnPos: Vector3 | null = null;
           let venusReturnTarget: Vector3 | null = null;
           let inCeilingView = false;
+          let inSunView = false;
 
           let flyAnim: {
             cs: Vector3;
@@ -534,12 +605,34 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
             ts: Vector3;
             te: Vector3;
             t: number;
+            speed?: number;
             onDone?: () => void;
           } | null = null;
+
+          // 모든 카메라 제한 해제 (위치 설정 시 필요할 때 사용)
+          // function releaseCameraLimits(): void {
+          //   viewer.cameraControls.enabled = true;
+          //   viewer.cameraControls.enableZoom = true;
+          //   viewer.cameraControls.enablePan = true;
+          //   viewer.cameraControls.enableRotate = true;
+          //   viewer.cameraControls.minPolarAngle = 0;
+          //   viewer.cameraControls.maxPolarAngle = Math.PI;
+          //   viewer.cameraControls.minAzimuthAngle = -Infinity;
+          //   viewer.cameraControls.maxAzimuthAngle = Infinity;
+          //   viewer.cameraControls.minDistance = 0;
+          //   viewer.cameraControls.maxDistance = Infinity;
+          // }
 
           function flyToGroup(g: Group): void {
             const idx = parseInt(g.name.replace('stl_', ''), 10);
             currentViewGroupIdx = isNaN(idx) ? null : idx;
+
+            const targetEntry = annotEntries.find((en) => en.group === g);
+            if (targetEntry && targetEntry.videoUrl) {
+              playEntryVideo(targetEntry);
+            } else {
+              stopActiveVideo();
+            }
 
             if (!DEV_MODE) {
               homePos = HOME_POS.clone();
@@ -597,17 +690,22 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
               te: center.clone(),
               t: 0,
               onDone: () => {
-                if (idx === VENUS_IDX) upBtn.style.display = 'block';
+                if (idx === VENUS_IDX) {
+                  upBtn.style.display = 'block';
+                }
               },
             };
           }
 
           function flyHome(): void {
+            stopActiveVideo();
             upBtn.style.display = 'none';
             inCeilingView = false;
+            inSunView = false;
             venusReturnPos = null;
             venusReturnTarget = null;
             viewingBar.style.display = 'none';
+            viewer.cameraControls.autoRotate = false;
             viewer.cameraControls.enabled = false;
             flyAnim = {
               cs: viewer.camera.position.clone(),
@@ -638,6 +736,7 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
             if (inCeilingView && venusReturnPos && venusReturnTarget) {
               inCeilingView = false;
               upBtn.style.display = 'block';
+              viewer.cameraControls.autoRotate = false;
               viewer.cameraControls.enabled = false;
               viewer.cameraControls.enableZoom = false;
               flyAnim = {
@@ -674,6 +773,10 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
               ts: viewer.cameraControls.target.clone(),
               te,
               t: 0,
+              onDone: () => {
+                viewer.cameraControls.autoRotate = true;
+                viewer.cameraControls.autoRotateSpeed = 0.5;
+              },
             };
           });
 
@@ -743,7 +846,7 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
             }
 
             if (flyAnim) {
-              flyAnim.t = Math.min(1, flyAnim.t + 0.025);
+              flyAnim.t = Math.min(1, flyAnim.t + (flyAnim.speed ?? 0.01));
               const s = 1 - Math.pow(1 - flyAnim.t, 3); // cubic ease-out
               viewer.camera.position.lerpVectors(flyAnim.cs, flyAnim.ce, s);
               viewer.cameraControls.target.lerpVectors(flyAnim.ts, flyAnim.te, s);
@@ -817,28 +920,19 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
               let videoPlane: Mesh | null = null;
               let videoPlaneH = 0;
               let videoPlaneW = 0;
+              let thumbTex: Texture | null = null;
               if (cfg.video) {
                 const wb = new Box3().setFromObject(group);
                 const w = wb.max.x - wb.min.x;
                 const d = wb.max.z - wb.min.z;
                 videoPlaneW = Math.max(w, d) * (cfg.videoScale ?? 5.0);
                 videoPlaneH = videoPlaneW * (9 / 16);
-                const vid = document.createElement('video');
-                vid.src = cfg.video;
-                vid.loop = true;
-                vid.muted = true;
-                vid.playsInline = true;
-                vid.setAttribute('playsinline', '');
-                vid.style.cssText =
-                  'position:fixed;top:-9999px;left:-9999px;width:320px;height:180px;pointer-events:none;visibility:hidden;';
-                document.body.appendChild(vid);
-                vid.load();
-                vid.play().catch(() => {});
-                const vTex = new VideoTexture(vid);
-                vTex.colorSpace = SRGBColorSpace;
+                const thumbUrl = cfg.video.replace(/\.mp4$/, '_thumb.jpg');
+                thumbTex = thumbTextureLoader.load(thumbUrl);
+                thumbTex.colorSpace = SRGBColorSpace;
                 videoPlane = new Mesh(
                   new PlaneGeometry(videoPlaneW, videoPlaneW * (9 / 16)),
-                  new MeshBasicMaterial({ map: vTex, side: DoubleSide }),
+                  new MeshBasicMaterial({ map: thumbTex, side: DoubleSide }),
                 );
                 videoPlane.name = `video_plane_${idx}`;
                 viewer.scene.add(videoPlane);
@@ -861,6 +955,10 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
                 videoPlaneW,
                 videoZ: cfg.videoZ,
                 labelDiv,
+                videoUrl: cfg.video,
+                thumbTex,
+                videoEl: null,
+                videoTex: null,
               });
             };
 
@@ -898,7 +996,7 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
               }, 150);
             }
           });
-          viewer.scene.add(stlTC);
+          if (DEV_MODE) viewer.scene.add(stlTC);
 
           const stlBtnRow = document.createElement('div');
           stlBtnRow.style.cssText = 'display:flex;gap:6px;margin:4px 0;';
@@ -960,6 +1058,62 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
               (me.clientX / window.innerWidth) * 2 - 1,
               -(me.clientY / window.innerHeight) * 2 + 1,
             );
+
+            // ── 태양 클릭 감지 (화면에 보이고 렌즈플레어가 활성인 경우만) ──
+            if (sunGlowMat.opacity > 0.02) {
+              const sunDirClick = new Vector3().copy(sunLight.position).normalize();
+              const sunNDC = new Vector3()
+                .copy(viewer.camera.position)
+                .addScaledVector(sunDirClick, 150)
+                .project(viewer.camera);
+              if (sunNDC.z <= 1) {
+                const dx = mouse.x - sunNDC.x;
+                const dy = mouse.y - sunNDC.y;
+                if (Math.sqrt(dx * dx + dy * dy) < 0.12) {
+                  stopActiveVideo();
+                  currentViewGroupIdx = null;
+                  inSunView = true;
+                  upBtn.style.display = 'none';
+                  if (!DEV_MODE) {
+                    homePos = HOME_POS.clone();
+                    homeTarget = HOME_TARGET.clone();
+                  } else {
+                    homePos = viewer.camera.position.clone();
+                    homeTarget = viewer.cameraControls.target.clone();
+                  }
+                  viewingBar.style.display = 'flex';
+                  viewer.cameraControls.enabled = false;
+                  const sv = saved.sunView;
+                  const ORBIT_RADIUS = 10;
+                  let ce: Vector3;
+                  let te: Vector3;
+                  if (sv) {
+                    ce = new Vector3(sv.px, sv.py, sv.pz);
+                    const viewDir = new Vector3(
+                      sv.tx - sv.px,
+                      sv.ty - sv.py,
+                      sv.tz - sv.pz,
+                    ).normalize();
+                    te = ce.clone().addScaledVector(viewDir, ORBIT_RADIUS);
+                  } else {
+                    ce = viewer.camera.position.clone();
+                    te = new Vector3()
+                      .copy(viewer.camera.position)
+                      .addScaledVector(sunDirClick, ORBIT_RADIUS);
+                  }
+                  flyAnim = {
+                    cs: viewer.camera.position.clone(),
+                    ce,
+                    ts: viewer.cameraControls.target.clone(),
+                    te,
+                    t: 0,
+                    speed: 0.002,
+                  };
+                  return;
+                }
+              }
+            }
+
             const rc = new Raycaster();
             rc.setFromCamera(mouse, viewer.camera);
 
@@ -1027,7 +1181,7 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
           modelTC.addEventListener('dragging-changed', (e: any) => {
             viewer.cameraControls.enabled = !e.value;
           });
-          viewer.scene.add(modelTC);
+          if (DEV_MODE) viewer.scene.add(modelTC);
 
           const modelBtnRow = document.createElement('div');
           modelBtnRow.style.cssText = 'display:flex;gap:6px;margin:4px 0;';
@@ -1178,7 +1332,7 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
           viewer.camera.up.set(0, 1, 0);
           viewer.camera.near = 0.01;
           viewer.camera.far = maxDim * 1000;
-          if (saved.camera) {
+          if (DEV_MODE && saved.camera) {
             viewer.camera.position.set(saved.camera.px, saved.camera.py, saved.camera.pz);
             viewer.cameraControls.target.set(saved.camera.tx, saved.camera.ty, saved.camera.tz);
           } else {
