@@ -307,7 +307,7 @@ const mainDracoLoader = new DRACOLoader();
 mainDracoLoader.setDecoderPath('draco/');
 loader.setDRACOLoader(mainDracoLoader);
 
-const GLB_CHUNKS = ['data/model_draco/model.part0'];
+const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_draco/model.part0'];
 
 (async () => {
   try {

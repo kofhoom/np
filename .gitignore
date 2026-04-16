@@ -1,6 +1,8 @@
 .project
 .vscode/
 .idea/
+.claude/
+build-temp/
 /build
 /pointclouds/alszeile
 /pointclouds/D
