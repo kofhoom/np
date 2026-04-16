@@ -1178,7 +1178,7 @@ const GLB_CHUNKS = ['data/model_draco/model.part0'];
           viewer.camera.up.set(0, 1, 0);
           viewer.camera.near = 0.01;
           viewer.camera.far = maxDim * 1000;
-          if (DEV_MODE && saved.camera) {
+          if (saved.camera) {
             viewer.camera.position.set(saved.camera.px, saved.camera.py, saved.camera.pz);
             viewer.cameraControls.target.set(saved.camera.tx, saved.camera.ty, saved.camera.tz);
           } else {
