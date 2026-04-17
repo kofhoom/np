@@ -177,10 +177,10 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
     if (fs && !fs.includes('NP_SPECKLE_GUARD')) {
       const patched = fs.replace(
         /gl_FragColor\s*=\s*vec4\(\s*retColor\s*,\s*1\.0\s*\)\s*;/,
-        `// NP_SPECKLE_GUARD: clamp mediump overflow to kill cyan speckles near sun on mobile
+        `// NP_SPECKLE_GUARD: clamp mediump overflow to kill cyan speckles on mobile
 vec3 npSafe = retColor;
-npSafe = (npSafe == npSafe) ? npSafe : vec3(0.0);
-npSafe = clamp(npSafe, vec3(0.0), vec3(60.0));
+npSafe = max(npSafe, vec3(0.0));
+npSafe = min(npSafe, vec3(2.0));
 gl_FragColor = vec4( npSafe, 1.0 );`,
       );
       (sky.material as any).fragmentShader = patched;
@@ -1862,8 +1862,8 @@ playerEl.style.cssText = `display:flex;align-items:center;gap:15px;background:rg
 playerWrap.appendChild(playerEl);
 
 const playBtn = document.createElement('span');
-playBtn.textContent = '▶';
-playBtn.style.cssText = 'cursor:pointer;opacity:0.85;font-size:18px;';
+playBtn.textContent = 'play';
+playBtn.style.cssText = 'cursor:pointer;opacity:0.7;font-size:inherit;letter-spacing:0.5px;';
 playBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   const ctx = ensureAudioCtx();
@@ -2232,8 +2232,8 @@ srcToggleBtn.addEventListener('click', (e) => {
 
 // ── 플레이어 함수 ──────────────────────────────────────────────
 function updateNavButtons(): void {
-  prevBtn.style.visibility = currentTrackIdx === 0 ? 'hidden' : 'visible';
-  nextBtn.style.visibility = currentTrackIdx === tracks.length - 1 ? 'hidden' : 'visible';
+  prevBtn.style.display = currentTrackIdx === 0 ? 'none' : 'block';
+  nextBtn.style.display = currentTrackIdx === tracks.length - 1 ? 'none' : 'block';
 }
 
 function getTrackDisplayName(filename: string): string {
