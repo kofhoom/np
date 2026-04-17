@@ -28,7 +28,10 @@ export class Viewer {
   /**
    * The ThreeJS renderer used to render the scene.
    */
-  renderer = new WebGLRenderer();
+  renderer = new WebGLRenderer({
+    powerPreference: 'high-performance',
+    antialias: false,
+  });
   /**
    * Our scene which will contain the point cloud.
    */
@@ -333,6 +336,9 @@ export class Viewer {
   /**
    * The main loop of the viewer, called at 60FPS, if possible.
    */
+  private mobileThrottleMs =
+    /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768 ? 33 : 0; // 30fps cap on mobile, uncapped on desktop
+
   loop = (time: number): void => {
     if (this.contextLost) return;
     this.reqAnimationFrameHandle = requestAnimationFrame(this.loop);
@@ -342,6 +348,9 @@ export class Viewer {
     if (prevTime === undefined) {
       return;
     }
+
+    if (this.mobileThrottleMs > 0 && time - (this.elapsedTime || 0) < this.mobileThrottleMs) return;
+    this.elapsedTime = time;
 
     this.update(time - prevTime);
     this.render();
