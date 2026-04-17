@@ -338,6 +338,7 @@ export class Viewer {
    */
   private mobileThrottleMs =
     /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768 ? 33 : 0; // 30fps cap on mobile, uncapped on desktop
+  private lastRenderTime = 0;
 
   loop = (time: number): void => {
     if (this.contextLost) return;
@@ -349,8 +350,8 @@ export class Viewer {
       return;
     }
 
-    if (this.mobileThrottleMs > 0 && time - (this.elapsedTime || 0) < this.mobileThrottleMs) return;
-    this.elapsedTime = time;
+    if (this.mobileThrottleMs > 0 && time - this.lastRenderTime < this.mobileThrottleMs) return;
+    this.lastRenderTime = time;
 
     this.update(time - prevTime);
     this.render();
