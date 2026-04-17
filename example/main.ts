@@ -2364,7 +2364,8 @@ const startAudio = () => {
   document.removeEventListener('click', startAudio);
   document.removeEventListener('touchstart', startAudio);
   userClicked = true;
-  ensureAudioCtx();
+  const ctx = ensureAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
   playTrack(0);
 };
 document.addEventListener('click', startAudio);
