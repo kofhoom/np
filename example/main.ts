@@ -2285,7 +2285,7 @@ setInterval(() => {
   l.upY.setTargetAtTime(up.y, t, 0.03);
   l.upZ.setTargetAtTime(up.z, t, 0.03);
 
-  if (acousticModel) {
+  if (acousticModel && !IS_MOBILE) {
     const now = Date.now();
     if (now - lastAcousticUpdate > 200) {
       lastAcousticUpdate = now;
