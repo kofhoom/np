@@ -2359,9 +2359,12 @@ setInterval(() => {
 prevBtn.addEventListener('click', () => playTrack(currentTrackIdx - 1));
 nextBtn.addEventListener('click', () => playTrack(currentTrackIdx + 1));
 
+let userClicked = false;
 const startAudio = () => {
   document.removeEventListener('click', startAudio);
   document.removeEventListener('touchstart', startAudio);
+  userClicked = true;
+  ensureAudioCtx();
   playTrack(0);
 };
 document.addEventListener('click', startAudio);
@@ -2373,8 +2376,7 @@ fetch('data/song/tracks.json')
     tracks = list;
     trackNameEl.textContent = getTrackDisplayName(tracks[0] ?? '트랙 없음');
     updateNavButtons();
-    // 유저가 이미 클릭했지만 tracks가 아직 안 로드됐던 경우 → 지금 재생
-    if (audioCtx) playTrack(0);
+    if (userClicked) playTrack(0);
   })
   .catch(() => {
     trackNameEl.textContent = '트랙 없음';
