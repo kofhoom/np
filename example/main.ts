@@ -1861,6 +1861,17 @@ const playerEl = document.createElement('div');
 playerEl.style.cssText = `display:flex;align-items:center;gap:15px;background:rgba(0,0,0,0.55);padding:13px 23px;border-radius:38px;backdrop-filter:blur(4px);`;
 playerWrap.appendChild(playerEl);
 
+const playBtn = document.createElement('span');
+playBtn.textContent = '▶';
+playBtn.style.cssText = 'cursor:pointer;opacity:0.85;font-size:18px;';
+playBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const ctx = ensureAudioCtx();
+  if (ctx.state === 'suspended') ctx.resume();
+  playTrack(0);
+  playBtn.style.display = 'none';
+});
+
 const prevBtn = document.createElement('span');
 prevBtn.textContent = 'prev';
 prevBtn.style.cssText = 'cursor:pointer;opacity:0.7;';
@@ -1897,6 +1908,7 @@ srcToggleBtn.title = DEV_MODE ? '음원 위치 조정' : '볼륨';
 srcToggleBtn.style.cssText =
   'cursor:pointer;opacity:0.65;line-height:0;display:flex;align-items:center;color:#eee;';
 
+playerEl.appendChild(playBtn);
 playerEl.appendChild(prevBtn);
 playerEl.appendChild(trackNameEl);
 playerEl.appendChild(nextBtn);
@@ -2356,20 +2368,14 @@ setInterval(() => {
   }
 }, 50);
 
-prevBtn.addEventListener('click', () => playTrack(currentTrackIdx - 1));
-nextBtn.addEventListener('click', () => playTrack(currentTrackIdx + 1));
-
-let userClicked = false;
-const startAudio = () => {
-  document.removeEventListener('click', startAudio);
-  document.removeEventListener('touchstart', startAudio);
-  userClicked = true;
-  const ctx = ensureAudioCtx();
-  if (ctx.state === 'suspended') ctx.resume();
-  playTrack(0);
-};
-document.addEventListener('click', startAudio);
-document.addEventListener('touchstart', startAudio);
+prevBtn.addEventListener('click', () => {
+  playBtn.style.display = 'none';
+  playTrack(currentTrackIdx - 1);
+});
+nextBtn.addEventListener('click', () => {
+  playBtn.style.display = 'none';
+  playTrack(currentTrackIdx + 1);
+});
 
 fetch('data/song/tracks.json')
   .then((r) => r.json())
@@ -2377,7 +2383,6 @@ fetch('data/song/tracks.json')
     tracks = list;
     trackNameEl.textContent = getTrackDisplayName(tracks[0] ?? '트랙 없음');
     updateNavButtons();
-    if (userClicked) playTrack(0);
   })
   .catch(() => {
     trackNameEl.textContent = '트랙 없음';
