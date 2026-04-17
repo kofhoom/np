@@ -375,8 +375,9 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
             if (IS_MOBILE && obj.isMesh && obj.material) {
               const oldMat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
               const map = oldMat?.map ?? null;
-              const vc = !!oldMat?.vertexColors;
-              const newMat = new MeshLambertMaterial({ map, vertexColors: vc });
+              const newMat = new MeshLambertMaterial({ map, vertexColors: false });
+              (newMat as any).precision = 'highp';
+              newMat.needsUpdate = true;
               if (Array.isArray(obj.material)) obj.material.forEach((m: any) => m?.dispose?.());
               else oldMat?.dispose?.();
               obj.material = newMat;
