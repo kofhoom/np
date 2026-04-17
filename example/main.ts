@@ -29,6 +29,7 @@ import {
   DoubleSide,
   Plane,
   AdditiveBlending,
+  Color,
 } from 'three';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 
@@ -143,13 +144,12 @@ const flare3 = makeFlareSprite(240, 200, 120, true); // 웜 오렌지
 const { mat: sunGlowMat, sprite: sunGlowSprite } = sunGlow;
 
 function updateSun(azDeg: number, elDeg: number): void {
-  if (!sky) return;
   const phi = (90 - elDeg) * (Math.PI / 180);
   const theta = azDeg * (Math.PI / 180);
   const x = Math.sin(phi) * Math.cos(theta);
   const y = Math.cos(phi);
   const z = Math.sin(phi) * Math.sin(theta);
-  sky.material.uniforms['sunPosition'].value.set(x, y, z);
+  if (sky) sky.material.uniforms['sunPosition'].value.set(x, y, z);
   sunLight.position.set(x * 500, y * 500, z * 500);
   sunLight.target.updateMatrixWorld();
 }
@@ -163,36 +163,24 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
     const { width, height } = targetEl.getBoundingClientRect();
     viewer.renderer.setSize(width, height);
   }
-  sky = new Sky();
-  sky.scale.setScalar(450000);
   if (!IS_MOBILE) {
+    sky = new Sky();
+    sky.scale.setScalar(450000);
     (sky.material as any).precision = 'highp';
     const fs = (sky.material as any).fragmentShader as string;
     if (fs && !fs.includes('precision highp float')) {
       (sky.material as any).fragmentShader = 'precision highp float;\nprecision highp int;\n' + fs;
     }
     sky.material.needsUpdate = true;
+    viewer.scene.add(sky);
+    const u = sky.material.uniforms;
+    u['turbidity'].value = 10;
+    u['rayleigh'].value = 3;
+    u['mieCoefficient'].value = 0.005;
+    u['mieDirectionalG'].value = 0.7;
   } else {
-    const fs = (sky.material as any).fragmentShader as string;
-    if (fs && !fs.includes('NP_SPECKLE_GUARD')) {
-      const patched = fs.replace(
-        /gl_FragColor\s*=\s*vec4\(\s*retColor\s*,\s*1\.0\s*\)\s*;/,
-        `// NP_SPECKLE_GUARD: clamp mediump overflow to kill cyan speckles on mobile
-vec3 npSafe = retColor;
-npSafe = max(npSafe, vec3(0.0));
-npSafe = min(npSafe, vec3(2.0));
-gl_FragColor = vec4( npSafe, 1.0 );`,
-      );
-      (sky.material as any).fragmentShader = patched;
-      sky.material.needsUpdate = true;
-    }
+    viewer.scene.background = new Color(0x1a1510);
   }
-  viewer.scene.add(sky);
-  const u = sky.material.uniforms;
-  u['turbidity'].value = 10;
-  u['rayleigh'].value = 3;
-  u['mieCoefficient'].value = 0.005;
-  u['mieDirectionalG'].value = 0.7;
   updateSun(sunAzimuth, sunElevation);
 });
 
