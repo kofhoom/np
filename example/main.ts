@@ -164,21 +164,36 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
   }
   sky = new Sky();
   sky.scale.setScalar(450000);
-  (sky.material as any).precision = 'highp';
-  let skyFs = (sky.material as any).fragmentShader as string;
-  if (skyFs && !skyFs.includes('NP_SKY_CLAMP')) {
-    skyFs = skyFs.replace(/vec3 Lin = pow\(/, 'vec3 Lin = min( pow(');
-    skyFs = skyFs.replace(
-      /\( 1\.0 - Fex \), vec3\( 1\.5 \) \);/,
-      '( 1.0 - Fex ), vec3( 1.5 ) ), vec3(1000.0)); // NP_SKY_CLAMP',
-    );
-    skyFs = skyFs.replace(/L0 \+= \( vSunE \* 19000\.0/, 'L0 += min( ( vSunE * 19000.0');
-    skyFs = skyFs.replace(/\* Fex \) \* sundisk;/, '* Fex ) * sundisk, vec3(1000.0));');
-    skyFs = skyFs.replace(
-      /vec3 texColor = \( Lin \+ L0 \) \* 0\.04/,
-      'vec3 texColor = min( ( Lin + L0 ), vec3(5000.0) ) * 0.04',
-    );
-    (sky.material as any).fragmentShader = skyFs;
+  if (IS_MOBILE) {
+    let skyFs = (sky.material as any).fragmentShader as string;
+    if (skyFs && !skyFs.includes('NP_MOBILE_SKY')) {
+      skyFs = skyFs.replace(/vec3 Lin = pow\(/, 'vec3 Lin = pow( clamp( // NP_MOBILE_SKY\n');
+      skyFs = skyFs.replace(
+        /\( 1\.0 - Fex \), vec3\( 1\.5 \) \);/,
+        '( 1.0 - Fex ), vec3(0.0), vec3(4.0) ), vec3( 1.5 ) );',
+      );
+      skyFs = skyFs.replace(
+        /Lin \*= mix\( vec3\( 1\.0 \)/,
+        'Lin = clamp(Lin, vec3(0.0), vec3(10.0));\nLin *= mix( vec3( 1.0 )',
+      );
+      skyFs = skyFs.replace(
+        /pow\( vSunE \* \(\( betaRTheta \+ betaMTheta \)/,
+        'pow( clamp( vSunE * (( betaRTheta + betaMTheta )',
+      );
+      skyFs = skyFs.replace(
+        /\* Fex, vec3\( 0\.5 \) \)/,
+        '* Fex, vec3(0.0), vec3(4.0) ), vec3( 0.5 ) )',
+      );
+      skyFs = skyFs.replace(/L0 \+= \( vSunE \* 19000\.0/, 'L0 += clamp( ( vSunE * 19000.0');
+      skyFs = skyFs.replace(/\* Fex \) \* sundisk;/, '* Fex ) * sundisk, vec3(0.0), vec3(50.0));');
+      skyFs = skyFs.replace(
+        /vec3 texColor = \( Lin \+ L0 \) \* 0\.04 \+ vec3\( 0\.0, 0\.0003, 0\.00075 \);/,
+        'vec3 texColor = clamp( ( Lin + L0 ), vec3(0.0), vec3(100.0) ) * 0.04;',
+      );
+      (sky.material as any).fragmentShader = skyFs;
+    }
+  } else {
+    (sky.material as any).precision = 'highp';
   }
   sky.material.needsUpdate = true;
   viewer.scene.add(sky);
@@ -381,8 +396,7 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
             if (IS_MOBILE && obj.isMesh && obj.material) {
               const oldMat = Array.isArray(obj.material) ? obj.material[0] : obj.material;
               const map = oldMat?.map ?? null;
-              const hasVC = !!(obj.geometry && obj.geometry.getAttribute('color'));
-              const newMat = new MeshLambertMaterial({ map, vertexColors: hasVC });
+              const newMat = new MeshLambertMaterial({ map, vertexColors: false });
               (newMat as any).precision = 'highp';
               newMat.needsUpdate = true;
               if (Array.isArray(obj.material)) obj.material.forEach((m: any) => m?.dispose?.());
