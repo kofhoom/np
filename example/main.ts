@@ -131,7 +131,7 @@ function makeFlareSprite(r: number, g: number, b: number, sharp = false) {
   });
   const sprite = new Sprite(mat);
   sprite.renderOrder = 999;
-  if (!IS_MOBILE) viewer.scene.add(sprite);
+  viewer.scene.add(sprite);
   return { mat, sprite };
 }
 
@@ -154,11 +154,7 @@ function updateSun(azDeg: number, elDeg: number): void {
 }
 
 viewer.initialize(targetEl, DEV_MODE).then(() => {
-  if (IS_MOBILE) {
-    viewer.renderer.toneMapping = 0; // NoToneMapping
-  } else {
-    viewer.renderer.toneMapping = ACESFilmicToneMapping;
-  }
+  viewer.renderer.toneMapping = IS_MOBILE ? 2 : ACESFilmicToneMapping;
   viewer.renderer.toneMappingExposure = saved.exposure ?? 0.284;
   viewer.renderer.outputColorSpace = SRGBColorSpace;
   if (IS_MOBILE) {
@@ -169,86 +165,9 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
   }
   sky = new Sky();
   sky.scale.setScalar(450000);
-  if (IS_MOBILE) {
-    (sky.material as any).vertexShader = [
-      'uniform vec3 sunPosition;',
-      'uniform float rayleigh;',
-      'uniform float turbidity;',
-      'uniform float mieCoefficient;',
-      'uniform vec3 up;',
-      'varying vec3 vWorldPosition;',
-      'varying vec3 vSunDirection;',
-      'varying float vSunfade;',
-      'varying vec3 vBetaR;',
-      'varying vec3 vBetaM;',
-      'varying float vSunE;',
-      'const float cutoffAngle=1.6110731556870734;',
-      'const float steepness=1.5;',
-      'const vec3 totalRayleigh=vec3(5.8045e-6,1.3563e-5,3.0266e-5);',
-      'const vec3 totalMieBase=vec3(1.5971e-4,2.4117e-4,3.5407e-4);',
-      'void main(){',
-      '  vec4 wp=modelMatrix*vec4(position,1.0);',
-      '  vWorldPosition=wp.xyz;',
-      '  gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);',
-      '  gl_Position.z=gl_Position.w;',
-      '  vSunDirection=normalize(sunPosition);',
-      '  float zAC=clamp(dot(vSunDirection,up),-1.0,1.0);',
-      '  vSunE=1000.0*max(0.0,1.0-exp(-((cutoffAngle-acos(zAC))/steepness)));',
-      '  vSunfade=1.0-clamp(1.0-exp(sunPosition.y/450000.0),0.0,1.0);',
-      '  float rCoeff=rayleigh-(1.0*(1.0-vSunfade));',
-      '  vBetaR=totalRayleigh*rCoeff;',
-      '  vBetaM=totalMieBase*turbidity*mieCoefficient;',
-      '}',
-    ].join('\n');
-    (sky.material as any).fragmentShader = [
-      'varying vec3 vWorldPosition;',
-      'varying vec3 vSunDirection;',
-      'varying float vSunfade;',
-      'varying vec3 vBetaR;',
-      'varying vec3 vBetaM;',
-      'varying float vSunE;',
-      'uniform float mieDirectionalG;',
-      'uniform vec3 up;',
-      'const float pi=3.141592653589793;',
-      'const float rayleighZenithLength=8400.0;',
-      'const float mieZenithLength=1250.0;',
-      'const float sunAngularDiameterCos=0.9999566769;',
-      'const float THREE_OVER_SIXTEENPI=0.05968310365946075;',
-      'const float ONE_OVER_FOURPI=0.07957747154594767;',
-      'float rPhase(float c){return THREE_OVER_SIXTEENPI*(1.0+c*c);}',
-      'float hgPhase(float c,float g){float g2=g*g;return ONE_OVER_FOURPI*((1.0-g2)/pow(max(1.0-2.0*g*c+g2,0.001),1.5));}',
-      'void main(){',
-      '  vec3 dir=normalize(vWorldPosition-cameraPosition);',
-      '  float zenith=acos(max(0.0,dot(up,dir)));',
-      '  float inv=1.0/(cos(zenith)+0.15*pow(max(93.885-((zenith*180.0)/pi),0.1),-1.253));',
-      '  float sR=rayleighZenithLength*inv;',
-      '  float sM=mieZenithLength*inv;',
-      '  vec3 Fex=exp(-(vBetaR*sR+vBetaM*sM));',
-      '  float cosT=dot(dir,vSunDirection);',
-      '  vec3 betaRTheta=vBetaR*rPhase(cosT*0.5+0.5);',
-      '  vec3 betaMTheta=vBetaM*hgPhase(cosT,mieDirectionalG);',
-      '  vec3 denom=vBetaR+vBetaM;',
-      '  vec3 scatter=(betaRTheta+betaMTheta)/max(denom,vec3(1e-6));',
-      '  vec3 sIn=clamp(vSunE*scatter*(1.0-Fex),vec3(0.0),vec3(4.0));',
-      '  vec3 Lin=sIn*sqrt(sIn);',
-      '  vec3 mIn=clamp(vSunE*scatter*Fex,vec3(0.0),vec3(4.0));',
-      '  Lin=clamp(Lin,vec3(0.0),vec3(10.0));',
-      '  Lin*=mix(vec3(1.0),sqrt(mIn),clamp(pow(1.0-dot(up,vSunDirection),5.0),0.0,1.0));',
-      '  vec3 L0=vec3(0.1)*Fex;',
-      '  float sundisk=smoothstep(sunAngularDiameterCos,sunAngularDiameterCos+0.00002,cosT);',
-      '  L0+=min(vSunE,3.0)*19000.0*Fex*sundisk;',
-      '  vec3 texColor=clamp(Lin+L0,vec3(0.0),vec3(60000.0))*0.04;',
-      '  vec3 retColor=pow(clamp(texColor,vec3(0.001),vec3(5.0)),vec3(1.0/(1.2+(1.2*vSunfade))));',
-      '  gl_FragColor=vec4(retColor,1.0);',
-      '  #include <tonemapping_fragment>',
-      '  #include <colorspace_fragment>',
-      '}',
-    ].join('\n');
-  } else {
-    (sky.material as any).precision = 'highp';
-  }
+  (sky.material as any).precision = 'highp';
   sky.material.needsUpdate = true;
-  if (!IS_MOBILE) viewer.scene.add(sky);
+  viewer.scene.add(sky);
   const u = sky.material.uniforms;
   u['turbidity'].value = 10;
   u['rayleigh'].value = 3;
