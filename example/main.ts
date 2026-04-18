@@ -622,6 +622,8 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
           const VENUS_IDX = 3;
           let venusReturnPos: Vector3 | null = null;
           let venusReturnTarget: Vector3 | null = null;
+          let preFlyPos: Vector3 | null = null;
+          let preFlyTarget: Vector3 | null = null;
           let inCeilingView = false;
           let inSunView = false;
 
@@ -659,6 +661,9 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
             } else {
               stopActiveVideo();
             }
+
+            preFlyPos = viewer.camera.position.clone();
+            preFlyTarget = viewer.cameraControls.target.clone();
 
             if (!DEV_MODE) {
               homePos = HOME_POS.clone();
@@ -733,19 +738,23 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
             viewingBar.style.display = 'none';
             viewer.cameraControls.autoRotate = false;
             viewer.cameraControls.enabled = false;
+            const returnPos = preFlyPos ?? homePos.clone();
+            const returnTarget = preFlyTarget ?? homeTarget.clone();
+            preFlyPos = null;
+            preFlyTarget = null;
             flyAnim = {
               cs: viewer.camera.position.clone(),
-              ce: homePos.clone(),
+              ce: returnPos,
               ts: viewer.cameraControls.target.clone(),
-              te: homeTarget.clone(),
+              te: returnTarget,
               t: 0,
               onDone: () => {
                 viewer.cameraControls.enabled = true;
                 viewer.cameraControls.enableZoom = false;
                 if (!DEV_MODE) {
-                  const dx = homePos.x - homeTarget.x;
-                  const dy = homePos.y - homeTarget.y;
-                  const dz = homePos.z - homeTarget.z;
+                  const dx = returnPos.x - returnTarget.x;
+                  const dy = returnPos.y - returnTarget.y;
+                  const dz = returnPos.z - returnTarget.z;
                   const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
                   viewer.cameraControls.minPolarAngle = Math.acos(dy / dist);
                   viewer.cameraControls.maxPolarAngle = Math.PI;
