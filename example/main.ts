@@ -131,7 +131,7 @@ function makeFlareSprite(r: number, g: number, b: number, sharp = false) {
   });
   const sprite = new Sprite(mat);
   sprite.renderOrder = 999;
-  viewer.scene.add(sprite);
+  if (!IS_MOBILE) viewer.scene.add(sprite);
   return { mat, sprite };
 }
 
