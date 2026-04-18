@@ -809,7 +809,7 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
             requestAnimationFrame(annotRafLoop);
 
             // ── 렌즈플레어 스프라이트 업데이트 ──────────────────────
-            if (!IS_MOBILE) {
+            {
               const t = performance.now() * 0.001;
               const shimmer =
                 Math.sin(t * 0.13) * 0.045 +
@@ -831,35 +831,37 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
               sunGlowSprite.scale.setScalar(DIST * 1.1 * curFlareScale * (1 + shimmer));
               sunGlowMat.opacity = vis * 0.92;
 
-              const sunNDC = new Vector3()
-                .copy(viewer.camera.position)
-                .addScaledVector(sunDir, DIST)
-                .project(viewer.camera); // [-1,1]
+              if (!IS_MOBILE) {
+                const sunNDC = new Vector3()
+                  .copy(viewer.camera.position)
+                  .addScaledVector(sunDir, DIST)
+                  .project(viewer.camera);
 
-              const sunOnScreen =
-                sunNDC.z <= 1 && Math.abs(sunNDC.x) < 1.5 && Math.abs(sunNDC.y) < 1.5;
-              const artifactVis = sunOnScreen ? vis : 0;
+                const sunOnScreen =
+                  sunNDC.z <= 1 && Math.abs(sunNDC.x) < 1.5 && Math.abs(sunNDC.y) < 1.5;
+                const artifactVis = sunOnScreen ? vis : 0;
 
-              const artifacts: Array<{
-                mat: SpriteMaterial;
-                sprite: Sprite;
-                t: number;
-                scale: number;
-                op: number;
-              }> = [
-                { ...flare1, t: 0.3, scale: 0.28, op: 0.45 },
-                { ...flare2, t: 0.56, scale: 0.18, op: 0.35 },
-                { ...flare3, t: 0.8, scale: 0.12, op: 0.25 },
-              ];
+                const artifacts: Array<{
+                  mat: SpriteMaterial;
+                  sprite: Sprite;
+                  t: number;
+                  scale: number;
+                  op: number;
+                }> = [
+                  { ...flare1, t: 0.3, scale: 0.28, op: 0.45 },
+                  { ...flare2, t: 0.56, scale: 0.18, op: 0.35 },
+                  { ...flare3, t: 0.8, scale: 0.12, op: 0.25 },
+                ];
 
-              for (const a of artifacts) {
-                const ax = sunNDC.x * (1 - a.t);
-                const ay = sunNDC.y * (1 - a.t);
-                const ndcPt = new Vector3(ax, ay, 0.1).unproject(viewer.camera);
-                const dir = ndcPt.sub(viewer.camera.position).normalize();
-                a.sprite.position.copy(viewer.camera.position).addScaledVector(dir, DIST);
-                a.sprite.scale.setScalar(DIST * a.scale * curFlareScale * (1 + shimmer * 0.4));
-                a.mat.opacity = artifactVis * a.op;
+                for (const a of artifacts) {
+                  const ax = sunNDC.x * (1 - a.t);
+                  const ay = sunNDC.y * (1 - a.t);
+                  const ndcPt = new Vector3(ax, ay, 0.1).unproject(viewer.camera);
+                  const dir = ndcPt.sub(viewer.camera.position).normalize();
+                  a.sprite.position.copy(viewer.camera.position).addScaledVector(dir, DIST);
+                  a.sprite.scale.setScalar(DIST * a.scale * curFlareScale * (1 + shimmer * 0.4));
+                  a.mat.opacity = artifactVis * a.op;
+                }
               }
             }
 
