@@ -829,8 +829,8 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
 
               sunGlowSprite.position.copy(viewer.camera.position).addScaledVector(sunDir, DIST);
               if (IS_MOBILE) {
-                sunGlowSprite.scale.setScalar(DIST * 0.5 * curFlareScale * (1 + shimmer));
-                sunGlowMat.opacity = vis * 0.4;
+                sunGlowSprite.scale.setScalar(DIST * 0.7 * curFlareScale * (1 + shimmer));
+                sunGlowMat.opacity = vis * 0.6;
               } else {
                 sunGlowSprite.scale.setScalar(DIST * 1.1 * curFlareScale * (1 + shimmer));
                 sunGlowMat.opacity = vis * 0.92;
