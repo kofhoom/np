@@ -154,7 +154,7 @@ function updateSun(azDeg: number, elDeg: number): void {
 }
 
 viewer.initialize(targetEl, DEV_MODE).then(() => {
-  viewer.renderer.toneMapping = IS_MOBILE ? 2 : ACESFilmicToneMapping;
+  viewer.renderer.toneMapping = IS_MOBILE ? 0 : ACESFilmicToneMapping;
   viewer.renderer.toneMappingExposure = saved.exposure ?? 0.284;
   viewer.renderer.outputColorSpace = SRGBColorSpace;
   if (IS_MOBILE) {
