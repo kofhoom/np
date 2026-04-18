@@ -244,7 +244,7 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
     (sky.material as any).precision = 'highp';
   }
   sky.material.needsUpdate = true;
-  viewer.scene.add(sky);
+  if (!IS_MOBILE) viewer.scene.add(sky);
   const u = sky.material.uniforms;
   u['turbidity'].value = 10;
   u['rayleigh'].value = 3;
