@@ -165,9 +165,20 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
   sky = new Sky();
   sky.scale.setScalar(450000);
   (sky.material as any).precision = 'highp';
-  const fs = (sky.material as any).fragmentShader as string;
-  if (fs && !fs.includes('precision highp float')) {
-    (sky.material as any).fragmentShader = 'precision highp float;\nprecision highp int;\n' + fs;
+  let skyFs = (sky.material as any).fragmentShader as string;
+  if (skyFs && !skyFs.includes('NP_SKY_CLAMP')) {
+    skyFs = skyFs.replace(/vec3 Lin = pow\(/, 'vec3 Lin = min( pow(');
+    skyFs = skyFs.replace(
+      /\( 1\.0 - Fex \), vec3\( 1\.5 \) \);/,
+      '( 1.0 - Fex ), vec3( 1.5 ) ), vec3(1000.0)); // NP_SKY_CLAMP',
+    );
+    skyFs = skyFs.replace(/L0 \+= \( vSunE \* 19000\.0/, 'L0 += min( ( vSunE * 19000.0');
+    skyFs = skyFs.replace(/\* Fex \) \* sundisk;/, '* Fex ) * sundisk, vec3(1000.0));');
+    skyFs = skyFs.replace(
+      /vec3 texColor = \( Lin \+ L0 \) \* 0\.04/,
+      'vec3 texColor = min( ( Lin + L0 ), vec3(5000.0) ) * 0.04',
+    );
+    (sky.material as any).fragmentShader = skyFs;
   }
   sky.material.needsUpdate = true;
   viewer.scene.add(sky);
