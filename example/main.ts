@@ -166,33 +166,49 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
   sky = new Sky();
   sky.scale.setScalar(450000);
   if (IS_MOBILE) {
-    let skyFs = (sky.material as any).fragmentShader as string;
-    if (skyFs && !skyFs.includes('NP_MOBILE_SKY')) {
-      skyFs = skyFs.replace(/vec3 Lin = pow\(/, 'vec3 Lin = pow( clamp( // NP_MOBILE_SKY\n');
-      skyFs = skyFs.replace(
-        /\( 1\.0 - Fex \), vec3\( 1\.5 \) \);/,
-        '( 1.0 - Fex ), vec3(0.0), vec3(4.0) ), vec3( 1.5 ) );',
-      );
-      skyFs = skyFs.replace(
-        /Lin \*= mix\( vec3\( 1\.0 \)/,
-        'Lin = clamp(Lin, vec3(0.0), vec3(10.0));\nLin *= mix( vec3( 1.0 )',
-      );
-      skyFs = skyFs.replace(
-        /pow\( vSunE \* \(\( betaRTheta \+ betaMTheta \)/,
-        'pow( clamp( vSunE * (( betaRTheta + betaMTheta )',
-      );
-      skyFs = skyFs.replace(
-        /\* Fex, vec3\( 0\.5 \) \)/,
-        '* Fex, vec3(0.0), vec3(4.0) ), vec3( 0.5 ) )',
-      );
-      skyFs = skyFs.replace(/L0 \+= \( vSunE \* 19000\.0/, 'L0 += clamp( ( vSunE * 19000.0');
-      skyFs = skyFs.replace(/\* Fex \) \* sundisk;/, '* Fex ) * sundisk, vec3(0.0), vec3(50.0));');
-      skyFs = skyFs.replace(
-        /vec3 texColor = \( Lin \+ L0 \) \* 0\.04 \+ vec3\( 0\.0, 0\.0003, 0\.00075 \);/,
-        'vec3 texColor = clamp( ( Lin + L0 ), vec3(0.0), vec3(100.0) ) * 0.04;',
-      );
-      (sky.material as any).fragmentShader = skyFs;
-    }
+    (sky.material as any).fragmentShader = [
+      'varying vec3 vWorldPosition;',
+      'varying vec3 vSunDirection;',
+      'varying float vSunfade;',
+      'varying vec3 vBetaR;',
+      'varying vec3 vBetaM;',
+      'varying float vSunE;',
+      'uniform float mieDirectionalG;',
+      'uniform vec3 up;',
+      'const float pi=3.141592653589793;',
+      'const float rayleighZenithLength=8.4e3;',
+      'const float mieZenithLength=1.25e3;',
+      'const float sunAngularDiameterCos=0.9999566769;',
+      'const float THREE_OVER_SIXTEENPI=0.05968310365946075;',
+      'const float ONE_OVER_FOURPI=0.07957747154594767;',
+      'float rayleighPhase(float c){return THREE_OVER_SIXTEENPI*(1.0+c*c);}',
+      'float hgPhase(float c,float g){float g2=g*g;return ONE_OVER_FOURPI*((1.0-g2)/pow(1.0-2.0*g*c+g2,1.5));}',
+      'void main(){',
+      '  vec3 dir=normalize(vWorldPosition-cameraPosition);',
+      '  float zenith=acos(max(0.0,dot(up,dir)));',
+      '  float inv=1.0/(cos(zenith)+0.15*pow(93.885-((zenith*180.0)/pi),-1.253));',
+      '  float sR=rayleighZenithLength*inv;',
+      '  float sM=mieZenithLength*inv;',
+      '  vec3 Fex=exp(-(vBetaR*sR+vBetaM*sM));',
+      '  float cosT=dot(dir,vSunDirection);',
+      '  vec3 betaRTheta=vBetaR*rayleighPhase(cosT*0.5+0.5);',
+      '  vec3 betaMTheta=vBetaM*hgPhase(cosT,mieDirectionalG);',
+      '  vec3 scatter=(betaRTheta+betaMTheta)/(vBetaR+vBetaM);',
+      '  vec3 sIn=clamp(vSunE*scatter*(1.0-Fex),vec3(0.0),vec3(4.0));',
+      '  vec3 Lin=sIn*sqrt(sIn);',
+      '  vec3 mIn=clamp(vSunE*scatter*Fex,vec3(0.0),vec3(4.0));',
+      '  Lin=clamp(Lin,vec3(0.0),vec3(10.0));',
+      '  Lin*=mix(vec3(1.0),sqrt(mIn),clamp(pow(1.0-dot(up,vSunDirection),5.0),0.0,1.0));',
+      '  vec3 L0=vec3(0.1)*Fex;',
+      '  float sundisk=smoothstep(sunAngularDiameterCos,sunAngularDiameterCos+0.00002,cosT);',
+      '  L0+=clamp(vSunE*19000.0*Fex,vec3(0.0),vec3(50.0))*sundisk;',
+      '  vec3 texColor=clamp(Lin+L0,vec3(0.0),vec3(100.0))*0.04;',
+      '  vec3 retColor=pow(clamp(texColor,vec3(0.0),vec3(5.0)),vec3(1.0/(1.2+(1.2*vSunfade))));',
+      '  gl_FragColor=vec4(retColor,1.0);',
+      '  #include <tonemapping_fragment>',
+      '  #include <colorspace_fragment>',
+      '}',
+    ].join('\n');
   } else {
     (sky.material as any).precision = 'highp';
   }
