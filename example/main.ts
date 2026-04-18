@@ -659,6 +659,8 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
               stopActiveVideo();
             }
 
+            annotEntries.forEach((e) => (e.labelDiv.style.display = 'none'));
+
             preFlyPos = viewer.camera.position.clone();
             preFlyTarget = viewer.cameraControls.target.clone();
 
@@ -682,6 +684,7 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
                 const dir = ce.clone().sub(te).normalize();
                 ce = ce.clone().addScaledVector(dir, pullback);
               }
+              const flyDoneCfg = STL_CONFIG[idx];
               flyAnim = {
                 cs: viewer.camera.position.clone(),
                 ce,
@@ -690,6 +693,12 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
                 t: 0,
                 onDone: () => {
                   if (idx === VENUS_IDX) upBtn.style.display = 'block';
+                  if (flyDoneCfg?.link && targetEntry) {
+                    targetEntry.labelDiv.textContent = 'Go to Bandcamp';
+                    targetEntry.labelDiv.style.cursor = 'pointer';
+                    targetEntry.labelDiv.onclick = () => window.open(flyDoneCfg.link!, '_blank');
+                    targetEntry.labelDiv.style.display = 'block';
+                  }
                 },
               };
               return;
@@ -711,6 +720,7 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
             const dir = new Vector3().subVectors(viewer.camera.position, center).normalize();
             if (dir.lengthSq() < 0.001) dir.set(0, 0, 1).normalize();
 
+            const flyDoneCfg2 = STL_CONFIG[idx];
             flyAnim = {
               cs: viewer.camera.position.clone(),
               ce: center.clone().addScaledVector(dir, dist),
@@ -721,12 +731,20 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
                 if (idx === VENUS_IDX) {
                   upBtn.style.display = 'block';
                 }
+                if (flyDoneCfg2?.link && targetEntry) {
+                  targetEntry.labelDiv.textContent = 'Go to Bandcamp';
+                  targetEntry.labelDiv.style.cursor = 'pointer';
+                  targetEntry.labelDiv.onclick = () => window.open(flyDoneCfg2.link!, '_blank');
+                  targetEntry.labelDiv.style.display = 'block';
+                }
               },
             };
           }
 
           function flyHome(): void {
             stopActiveVideo();
+            annotEntries.forEach((e) => (e.labelDiv.style.display = 'none'));
+            currentViewGroupIdx = null;
             upBtn.style.display = 'none';
             inCeilingView = false;
             inSunView = false;
@@ -909,11 +927,15 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
                 entry.videoPlane.rotation.copy(entry.group.rotation);
               }
 
-              const wp = new Vector3(cx, wb.max.y + 0.3, cz);
+              const wp = new Vector3(cx, wb.max.y, cz);
               wp.project(viewer.camera);
-              entry.labelDiv.style.display = 'none';
-              entry.labelDiv.style.left = (wp.x * 0.5 + 0.5) * targetEl.clientWidth + 'px';
-              entry.labelDiv.style.top = (-wp.y * 0.5 + 0.5) * targetEl.clientHeight + 'px';
+              const entryIdx = parseInt(entry.group.name.replace('stl_', ''), 10);
+              const isActiveLink = STL_CONFIG[entryIdx]?.link && currentViewGroupIdx === entryIdx;
+              entry.labelDiv.style.display = isActiveLink && wp.z <= 1 ? 'block' : 'none';
+              const screenX = (wp.x * 0.5 + 0.5) * targetEl.clientWidth;
+              const screenY = (-wp.y * 0.5 + 0.5) * targetEl.clientHeight;
+              entry.labelDiv.style.left = screenX + 'px';
+              entry.labelDiv.style.top = Math.max(30, screenY) + 'px';
             }
           }
           requestAnimationFrame(annotRafLoop);
