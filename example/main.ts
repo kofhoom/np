@@ -399,6 +399,7 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
             label: string;
             videoScale?: number;
             videoZ?: number;
+            link?: string;
           }> = [
             // {
             //   url: 'data/stl/6-abacus-the-ascension.stl',
@@ -446,6 +447,12 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
               url: 'data/stl/Thetis-draco.glb',
               video: null,
               label: 'Thetis',
+            },
+            {
+              url: 'data/stl/Anna_te_Drieen_FINAL.glb',
+              video: null,
+              label: 'Anna te Drieen',
+              link: 'https://4kapas.bandcamp.com/album/--2',
             },
           ];
 
@@ -595,7 +602,7 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
           const upBtn = document.createElement('button');
           upBtn.textContent = '↑ Up';
           upBtn.style.cssText = `
-          display:none;position:fixed;top:27px;left:50%;transform:translateX(-50%);z-index:200;
+          display:none;position:fixed;bottom:10px;left:50%;transform:translateX(-50%);z-index:200;
           background:rgba(0,0,0,0.65);color:#fff;border:1px solid rgba(255,255,255,0.3);
           padding:13px 30px;border-radius:38px;cursor:pointer;font-size:25px;
           backdrop-filter:blur(4px);transition:background 0.2s;zoom:${_uiZoom};
@@ -829,8 +836,8 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
 
               sunGlowSprite.position.copy(viewer.camera.position).addScaledVector(sunDir, DIST);
               if (IS_MOBILE) {
-                sunGlowSprite.scale.setScalar(DIST * 0.7 * curFlareScale * (1 + shimmer));
-                sunGlowMat.opacity = vis * 0.6;
+                sunGlowSprite.scale.setScalar(DIST * 0.8 * curFlareScale * (1 + shimmer));
+                sunGlowMat.opacity = vis * 0.5;
               } else {
                 sunGlowSprite.scale.setScalar(DIST * 1.1 * curFlareScale * (1 + shimmer));
                 sunGlowMat.opacity = vis * 0.92;
@@ -929,7 +936,11 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
                 refBox.getSize(refSize);
                 const targetSize = Math.max(gltfSize.x, gltfSize.y, gltfSize.z) * 0.01;
                 const currentMax = Math.max(refSize.x, refSize.y, refSize.z);
-                if (currentMax > 0) group.scale.setScalar(targetSize / currentMax);
+                if (currentMax > 0) {
+                  let s = targetSize / currentMax;
+                  if (s < 0.001) s = 0.002;
+                  group.scale.setScalar(s);
+                }
 
                 const cam = viewer.camera;
                 const forward = new Vector3();
@@ -940,6 +951,15 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
                   .copy(cam.position)
                   .addScaledVector(forward, targetSize * 3)
                   .addScaledVector(right, spread);
+              }
+
+              if (DEV_MODE) {
+                console.log(
+                  `[STL] ${cfg.label} pos:`,
+                  group.position.toArray().map((v: number) => v.toFixed(3)),
+                  'scale:',
+                  group.scale.x.toFixed(5),
+                );
               }
 
               viewer.scene.add(group);
@@ -992,25 +1012,36 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
               });
             };
 
-            stlGltfLoader.load(cfg.url, (gltf) => {
-              const meshes: Mesh[] = [];
-              gltf.scene.traverse((child: any) => {
-                if (child instanceof Mesh) {
-                  child.geometry.computeVertexNormals();
-                  child.material = new MeshStandardMaterial({
-                    color: STL_COLORS.normal,
-                    roughness: 0.78,
-                    metalness: 0.02,
-                  });
-                  meshes.push(child);
-                }
-              });
-              gltf.scene.rotation.x = -Math.PI / 2;
-              const group = new Group();
-              group.name = `stl_${idx}`;
-              group.add(gltf.scene);
-              setupGroup(group, meshes);
-            });
+            stlGltfLoader.load(
+              cfg.url,
+              (gltf: any) => {
+                console.log(`[STL] loaded: ${cfg.url}`, gltf);
+                const meshes: Mesh[] = [];
+                const hasTexture = cfg.url.includes('Anna_te_Drieen');
+                gltf.scene.traverse((child: any) => {
+                  if (child instanceof Mesh) {
+                    child.geometry.computeVertexNormals();
+                    if (!hasTexture) {
+                      child.material = new MeshStandardMaterial({
+                        color: STL_COLORS.normal,
+                        roughness: 0.78,
+                        metalness: 0.02,
+                      });
+                    }
+                    meshes.push(child);
+                  }
+                });
+                gltf.scene.rotation.x = -Math.PI / 2;
+                const group = new Group();
+                group.name = `stl_${idx}`;
+                group.add(gltf.scene);
+                setupGroup(group, meshes);
+              },
+              undefined,
+              (err: any) => {
+                console.error(`[STL] FAILED to load: ${cfg.url}`, err);
+              },
+            );
           });
 
           // STL TransformControls
@@ -1150,24 +1181,41 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
             const allMeshes: Mesh[] = ([] as Mesh[]).concat(
               ...stlGroups.map((g: Group) => (g.userData.meshes ?? []) as Mesh[]),
             );
-            const hits = rc.intersectObjects(allMeshes, false);
+            const videoPlanes: Mesh[] = annotEntries
+              .filter((e) => e.videoPlane)
+              .map((e) => e.videoPlane as Mesh);
+            const hits = rc.intersectObjects([...allMeshes, ...videoPlanes], false);
             if (hits.length > 0) {
               const hitMesh = hits[0].object as Mesh;
-              // 어떤 그룹에 속하는지 찾기 (STL: 직접 부모, OBJ: 조부모)
               let hitGroup =
                 stlGroups.find((g) => (g.userData.meshes as Mesh[]).includes(hitMesh)) ?? null;
+              if (!hitGroup) {
+                const vpEntry = annotEntries.find((e) => e.videoPlane === hitMesh);
+                if (vpEntry) hitGroup = vpEntry.group;
+              }
               if (!hitGroup) return;
+
+              const hitIdx = parseInt(hitGroup.name.replace('stl_', ''), 10);
+              const hitCfg = STL_CONFIG[hitIdx];
+              if (hitCfg?.link && currentViewGroupIdx === hitIdx) {
+                window.open(hitCfg.link, '_blank');
+                return;
+              }
+
               if (selectedStlGroup && selectedStlGroup !== hitGroup) {
-                ((selectedStlGroup.userData.meshes ?? []) as Mesh[]).forEach((m) =>
-                  (m.material as MeshStandardMaterial).color.setHex(STL_COLORS.normal),
-                );
+                if (!STL_CONFIG[parseInt(selectedStlGroup.name.replace('stl_', ''), 10)]?.link) {
+                  ((selectedStlGroup.userData.meshes ?? []) as Mesh[]).forEach((m) =>
+                    (m.material as MeshStandardMaterial).color.setHex(STL_COLORS.normal),
+                  );
+                }
               }
               selectedStlGroup = hitGroup;
-              ((hitGroup.userData.meshes ?? []) as Mesh[]).forEach((m) =>
-                (m.material as MeshStandardMaterial).color.setHex(STL_COLORS.selected),
-              );
+              if (!hitCfg?.link) {
+                ((hitGroup.userData.meshes ?? []) as Mesh[]).forEach((m) =>
+                  (m.material as MeshStandardMaterial).color.setHex(STL_COLORS.selected),
+                );
+              }
               if (!DEV_MODE) {
-                // non-DEV: polar 제한 해제 후 플라이-투
                 viewer.cameraControls.minPolarAngle = 0;
                 viewer.cameraControls.maxPolarAngle = Math.PI;
                 flyToGroup(hitGroup);
