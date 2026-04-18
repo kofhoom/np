@@ -29,7 +29,6 @@ import {
   DoubleSide,
   Plane,
   AdditiveBlending,
-  Color,
 } from 'three';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 
@@ -163,24 +162,20 @@ viewer.initialize(targetEl, DEV_MODE).then(() => {
     const { width, height } = targetEl.getBoundingClientRect();
     viewer.renderer.setSize(width, height);
   }
-  if (!IS_MOBILE) {
-    sky = new Sky();
-    sky.scale.setScalar(450000);
-    (sky.material as any).precision = 'highp';
-    const fs = (sky.material as any).fragmentShader as string;
-    if (fs && !fs.includes('precision highp float')) {
-      (sky.material as any).fragmentShader = 'precision highp float;\nprecision highp int;\n' + fs;
-    }
-    sky.material.needsUpdate = true;
-    viewer.scene.add(sky);
-    const u = sky.material.uniforms;
-    u['turbidity'].value = 10;
-    u['rayleigh'].value = 3;
-    u['mieCoefficient'].value = 0.005;
-    u['mieDirectionalG'].value = 0.7;
-  } else {
-    viewer.scene.background = new Color(0x1a1510);
+  sky = new Sky();
+  sky.scale.setScalar(450000);
+  (sky.material as any).precision = 'highp';
+  const fs = (sky.material as any).fragmentShader as string;
+  if (fs && !fs.includes('precision highp float')) {
+    (sky.material as any).fragmentShader = 'precision highp float;\nprecision highp int;\n' + fs;
   }
+  sky.material.needsUpdate = true;
+  viewer.scene.add(sky);
+  const u = sky.material.uniforms;
+  u['turbidity'].value = 10;
+  u['rayleigh'].value = 3;
+  u['mieCoefficient'].value = 0.005;
+  u['mieDirectionalG'].value = 0.7;
   updateSun(sunAzimuth, sunElevation);
 });
 
