@@ -154,7 +154,7 @@ function updateSun(azDeg: number, elDeg: number): void {
 }
 
 viewer.initialize(targetEl, DEV_MODE).then(() => {
-  viewer.renderer.toneMapping = IS_MOBILE ? 0 : ACESFilmicToneMapping;
+  viewer.renderer.toneMapping = ACESFilmicToneMapping;
   viewer.renderer.toneMappingExposure = saved.exposure ?? 0.284;
   viewer.renderer.outputColorSpace = SRGBColorSpace;
   if (IS_MOBILE) {
@@ -809,7 +809,7 @@ const GLB_CHUNKS = [IS_MOBILE ? 'data/model_mobile/model.part0' : 'data/model_dr
             requestAnimationFrame(annotRafLoop);
 
             // ── 렌즈플레어 스프라이트 업데이트 ──────────────────────
-            {
+            if (!IS_MOBILE) {
               const t = performance.now() * 0.001;
               const shimmer =
                 Math.sin(t * 0.13) * 0.045 +
